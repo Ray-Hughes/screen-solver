@@ -11,6 +11,7 @@
     watchInterval: $("watch-interval"), watchThreshold: $("watch-threshold"),
     mode: $("mode"), language: $("language"), hint: $("hint"),
     inspect: $("btn-inspect"), ctxState: $("ctx-state"), bookmarklet: $("bookmarklet"),
+    explore: $("btn-explore"), exploreFirst: $("explore-first"), supports: $("supports"),
     filmstrip: $("filmstrip"),
     viewport: $("viewport"), img: $("shot-img"), viewerEmpty: $("viewer-empty"),
     selection: $("selection"), shotMeta: $("shot-meta"),
@@ -103,6 +104,7 @@
       hint: el.hint.value.trim(),
       region: state.region,
       shot_id: state.shotId,
+      explore: !!(el.exploreFirst.checked && window.solverDesktop),
     };
   }
 
@@ -303,7 +305,43 @@
     markFilmstrip();
     el.ctxState.textContent = meta.has_page_context ? "page context attached" : "no page context";
     el.ctxState.className = "ctx-state" + (meta.has_page_context ? " ok" : "");
+    renderSupports(meta);
   }
+
+  /* The other panels captured for this shot. Clicking one swaps it into the
+     viewer, so you can check what the model was actually given. */
+  function renderSupports(meta) {
+    const list = (meta && meta.supports) || [];
+    state.supports = list;
+    el.supports.hidden = !list.length;
+    if (!list.length) return;
+    el.supports.innerHTML =
+      '<span class="supports-label">also sent</span>' +
+      `<button class="support on" data-index="-1">
+         <img src="/api/shots/${meta.id}/thumb.jpg" alt="" /><span>main capture</span>
+       </button>` +
+      list
+        .map(
+          (sup) => `<button class="support" data-index="${sup.index}">
+             <img src="/api/shots/${meta.id}/support/${sup.index}/thumb.jpg" alt="" />
+             <span>${sup.label}</span>
+           </button>`
+        )
+        .join("");
+  }
+
+  el.supports.addEventListener("click", (e) => {
+    const btn = e.target.closest(".support");
+    if (!btn || !state.shotId) return;
+    const i = Number(btn.dataset.index);
+    el.img.src =
+      i < 0
+        ? `/api/shots/${state.shotId}.png`
+        : `/api/shots/${state.shotId}/support/${i}.png`;
+    el.supports.querySelectorAll(".support").forEach((n) => n.classList.remove("on"));
+    btn.classList.add("on");
+    clearRegion();
+  });
 
   function markFilmstrip() {
     el.filmstrip.querySelectorAll("img").forEach((n) =>
@@ -403,6 +441,15 @@
       .map((k) => `<dt>${d.hotkeys[k]}</dt><dd>${labels[k]}</dd>`)
       .join("");
     document.getElementById("hotkeys").hidden = false;
+
+    // A failed explore pass is reported but never blocks the solve that
+    // follows it — the pixels are still there.
+    if (d.onExploreError) {
+      d.onExploreError(({ message }) => {
+        addEvent(`explore failed: ${message}`, "err");
+        toast(`Could not explore the page: ${message}`, true);
+      });
+    }
 
     d.onCaptureError(({ message }) => {
       setStatus("capture failed", "err");
@@ -941,6 +988,41 @@
   el.captureSolve.onclick = () => doCapture(true);
   el.cancel.onclick = () => api("/api/cancel", {});
 
+  /* Explore needs the app bundle: each panel is photographed by the shell,
+     because a screenshot taken by the Python child is refused by macOS. */
+  el.explore.disabled = !window.solverDesktop;
+  el.exploreFirst.disabled = !window.solverDesktop;
+  if (!window.solverDesktop) {
+    el.explore.title = "Only available in the desktop app.";
+    el.exploreFirst.parentElement.title = "Only available in the desktop app.";
+  }
+
+  el.exploreFirst.checked = localStorage.getItem("explore-first") === "1";
+  el.exploreFirst.onchange = () =>
+    localStorage.setItem("explore-first", el.exploreFirst.checked ? "1" : "0");
+
+  el.explore.onclick = async () => {
+    if (!state.shotId) {
+      toast("Capture something first.", true);
+      return;
+    }
+    el.explore.disabled = true;
+    const label = el.explore.textContent;
+    el.explore.textContent = "Exploring…";
+    try {
+      const r = await window.solverDesktop.explore({ shot_id: state.shotId });
+      const n = (r.panels || []).length;
+      addEvent(n ? `explored: ${r.panels.join(", ")}` : "no other panels found", "tool");
+      toast(n ? `Captured ${n} more panel(s).` : "No other panels to open.");
+    } catch (e) {
+      toast(e.message, true);
+      addEvent(e.message, "err");
+    } finally {
+      el.explore.textContent = label;
+      el.explore.disabled = false;
+    }
+  };
+
   el.inspect.onclick = async () => {
     el.inspect.disabled = true;
     el.ctxState.textContent = "inspecting…";
@@ -1158,6 +1240,12 @@
       const d = JSON.parse(e.data);
       authPending(d);
       if (d.message) addEvent(d.message);
+    });
+
+    // A supporting capture landed on the shot we are looking at.
+    es.addEventListener("shot_updated", (e) => {
+      const meta = JSON.parse(e.data);
+      if (meta.id === state.shotId) renderSupports(meta);
     });
 
     // Another window (or the settings panel) changed the model.

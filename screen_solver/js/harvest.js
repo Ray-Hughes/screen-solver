@@ -102,6 +102,33 @@
   }
   out.code_blocks = pre;
 
+  /* Is this control the one currently showing its panel? Needed so an
+     explore pass can put the page back the way it found it. */
+  function isActive(el) {
+    if (el.getAttribute("aria-selected") === "true") return true;
+    if (el.getAttribute("aria-expanded") === "true") return true;
+    if (el.getAttribute("data-state") === "active") return true;
+    if (el.tagName.toLowerCase() === "summary") {
+      return !!(el.parentElement && el.parentElement.hasAttribute("open"));
+    }
+    var cls = " " + (el.className && el.className.baseVal !== undefined
+      ? el.className.baseVal : (el.className || "")) + " ";
+    return / (active|selected|is-active|is-selected|current) /.test(cls);
+  }
+
+  /* A tab-like control opens a panel of content; a plain button usually
+     submits or navigates. Only the former is worth clicking blind. */
+  function isTabLike(el) {
+    var role = el.getAttribute("role");
+    if (role === "tab") return true;
+    if (el.tagName.toLowerCase() === "summary") return true;
+    if (el.hasAttribute("data-tab") || el.hasAttribute("data-tab-id")) return true;
+    if (el.closest('[role="tablist"], .tabs, .tab-list, .tab-bar')) return true;
+    var cls = " " + (el.className && el.className.baseVal !== undefined
+      ? el.className.baseVal : (el.className || "")) + " ";
+    return / (tab|tab-item|nav-link) /.test(cls);
+  }
+
   var clickables = [];
   var cand2 = document.querySelectorAll(
     'button, [role="tab"], summary, a[href="#"], [role="button"], .tab, li[data-tab]'
@@ -109,7 +136,13 @@
   for (var b = 0; b < cand2.length && clickables.length < 60; b++) {
     var lbl = clean(cand2[b].innerText || cand2[b].textContent || cand2[b].getAttribute("aria-label") || "");
     if (lbl && lbl.length < 80) {
-      clickables.push({ label: lbl, tag: cand2[b].tagName.toLowerCase(), hidden: isHidden(cand2[b]) });
+      clickables.push({
+        label: lbl,
+        tag: cand2[b].tagName.toLowerCase(),
+        hidden: isHidden(cand2[b]),
+        tab: isTabLike(cand2[b]),
+        active: isActive(cand2[b])
+      });
     }
   }
   out.clickables = clickables;

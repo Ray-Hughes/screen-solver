@@ -147,6 +147,7 @@ def user_block(
     language: str = "",
     hint: str = "",
     page_context: str = "",
+    supports: list[str] | None = None,
 ) -> str:
     lines = ["Here is my screen. Find the problem on it and solve it."]
 
@@ -168,6 +169,17 @@ def user_block(
 
     if hint:
         lines.append(f"From me: {hint}")
+
+    if supports:
+        named = ", ".join(f'"{s}"' for s in supports)
+        lines.append(
+            f"I also opened {len(supports)} other panel(s) on that same page "
+            f"and captured each one for you: {named}. They are the images "
+            "above, in that order. They belong to the SAME problem as the "
+            "first screenshot \u2014 treat them as extra views of it, not as "
+            "separate questions. Read the schema, sample data, examples and "
+            "constraints from them rather than inferring any of it."
+        )
 
     if page_context:
         lines.append(

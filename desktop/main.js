@@ -47,6 +47,8 @@ const HOTKEYS = {
   "Alt+Command+C": "capture",
   "Alt+Command+S": "captureSolve",
   "Alt+Command+W": "toggleWatch",
+  "Alt+Command+E": "exploreSolve",
+  "Alt+Command+A": "addSupport",
   "Alt+Command+D": "toggleWindow",
 };
 
@@ -521,8 +523,12 @@ async function captureAndPush(opts = {}) {
   const { png, display, image } = await grabDisplay(opts.display || captureDisplayIndex);
   lastHash = averageHash(image);
 
+  // With an explore pass the solve is held back until the extra panels are
+  // attached — started inline, the model would read the shot before they land.
+  const deferAnalyze = !!(opts.analyze && opts.explore);
+
   const q = new URLSearchParams({ display: String(display) });
-  if (opts.analyze) {
+  if (opts.analyze && !deferAnalyze) {
     q.set("analyze", "1");
     if (opts.mode) q.set("mode", opts.mode);
     if (opts.language) q.set("language", opts.language);
@@ -536,7 +542,109 @@ async function captureAndPush(opts = {}) {
     body: png,
   });
   if (!res.ok) throw new Error(`backend rejected the capture (${res.status})`);
+  const shot = await res.json();
+
+  if (opts.explore) {
+    // Never fatal: a page that cannot be explored is still a page that can be
+    // solved from its pixels.
+    try {
+      await explorePage(shot.id);
+    } catch (err) {
+      const message = (err && err.message) || String(err);
+      console.error(`[solver] explore failed: ${message}`);
+      if (win && !win.isDestroyed()) win.webContents.send("explore-error", { message });
+    }
+  }
+
+  if (deferAnalyze) {
+    await post("/api/analyze", {
+      shot_id: shot.id,
+      mode: opts.mode || "auto",
+      language: opts.language || "",
+      hint: opts.hint || "",
+      region: opts.region || null,
+    });
+  }
+  return shot;
+}
+
+/** Pin whatever is on screen right now to the latest shot as an extra view. */
+async function addSupportCapture(label) {
+  const { png } = await grabDisplay(captureDisplayIndex);
+  const q = new URLSearchParams({ label: label || "extra capture" });
+  const res = await fetch(`http://127.0.0.1:${port}/api/capture/support?${q}`, {
+    method: "POST",
+    headers: { "Content-Type": "image/png" },
+    body: png,
+  });
+  if (!res.ok) throw new Error("There is no capture to attach this to yet.");
   return res.json();
+}
+
+/* ── exploring the page ────────────────────────────────────────────── *
+ *
+ * A screenshot only ever shows the tab that happened to be open, which is why
+ * a schema sitting behind "Schema & data" ends up invented rather than read.
+ *
+ * This walks the other panels: the backend nominates which are worth opening
+ * and clicks them over Apple Events, and THIS process takes each picture —
+ * capture has to happen in the app bundle, because a screenshot taken by the
+ * Python child is attributed to org.python.python and refused.
+ *
+ * It is deliberately not driven by the model: most local models cannot call
+ * tools at all, and this has to work for them too.
+ * ------------------------------------------------------------------------ */
+
+const post = async (path, body) => {
+  const res = await fetch(`http://127.0.0.1:${port}${path}`, {
+    method: "POST",
+    headers: body === undefined ? undefined : { "Content-Type": "application/json" },
+    body: body === undefined ? undefined : JSON.stringify(body),
+  });
+  if (!res.ok) {
+    const detail = await res.text().catch(() => "");
+    throw new Error(detail ? JSON.parse(detail).detail || detail : `HTTP ${res.status}`);
+  }
+  return res.json();
+};
+
+async function pushSupport(shotId, label, note, png) {
+  const q = new URLSearchParams({ shot_id: shotId, label, note: note || "" });
+  await fetch(`http://127.0.0.1:${port}/api/capture/support?${q}`, {
+    method: "POST",
+    headers: { "Content-Type": "image/png" },
+    body: png,
+  });
+}
+
+async function explorePage(shotId) {
+  const plan = await post("/api/explore/plan");
+  const opened = [];
+
+  for (const label of plan.tabs || []) {
+    let result;
+    try {
+      result = await post("/api/explore/open", { label });
+    } catch (err) {
+      console.error(`[solver] explore ${label}: ${err.message}`);
+      continue;
+    }
+    if (!result.ok) continue;
+
+    try {
+      const { png } = await grabDisplay(captureDisplayIndex);
+      await pushSupport(shotId, result.label, result.note, png);
+      opened.push(result.label);
+    } catch (err) {
+      console.error(`[solver] could not capture ${label}: ${err.message}`);
+    }
+  }
+
+  // Put the page back the way it was found — the user is looking at it.
+  if (plan.active) {
+    await post("/api/explore/open", { label: plan.active, settle: 0.2 }).catch(() => {});
+  }
+  return opened;
 }
 
 /* ── watch mode (desktop) ──────────────────────────────────────────── */
@@ -756,6 +864,13 @@ async function command(name) {
     case "capture":
       await captureAndPush({}).catch((e) => reportCaptureError(e));
       break;
+    case "exploreSolve":
+      await captureAndPush({ explore: true, analyze: true, mode: watchCfg.mode, language: watchCfg.language })
+        .catch((e) => reportCaptureError(e));
+      break;
+    case "addSupport":
+      await addSupportCapture().catch((e) => reportCaptureError(e));
+      break;
     case "captureSolve":
       await captureAndPush({ analyze: true, mode: watchCfg.mode, language: watchCfg.language })
         .catch((e) => reportCaptureError(e));
@@ -859,6 +974,10 @@ if (!app.requestSingleInstanceLock()) {
     await pushDisplays();
     return { status: screenPermission(), displays: listDisplays() };
   });
+  ipcMain.handle("explore", async (_e, opts) => ({
+    panels: await explorePage((opts && opts.shot_id) || ""),
+  }));
+  ipcMain.handle("add-support", (_e, opts) => addSupportCapture(opts && opts.label));
   ipcMain.handle("request-screen-access", async () => {
     const status = await promptForScreenAccess();
     await pushDisplays();

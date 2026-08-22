@@ -145,8 +145,22 @@ class Solver:
     ) -> None:
         png = capture.crop_normalized(shot.png, region) if region else shot.png
 
-        user_content: list[dict[str, Any]] = [
-            image_block(png, self.cfg.max_edge),
+        user_content: list[dict[str, Any]] = [image_block(png, self.cfg.max_edge)]
+
+        # Supporting captures go between the screenshot and the instructions,
+        # each announced by name, so the model knows a second image is another
+        # panel of the same problem rather than a different problem.
+        for i, sup in enumerate(shot.supports, 1):
+            user_content.append(
+                {
+                    "type": "text",
+                    "text": f"Supporting capture {i} of {len(shot.supports)} "
+                            f"\u2014 the \"{sup.label}\" panel of the same page:",
+                }
+            )
+            user_content.append(image_block(sup.png, self.cfg.support_max_edge))
+
+        user_content.append(
             {
                 "type": "text",
                 "text": prompts.user_block(
@@ -154,9 +168,10 @@ class Solver:
                     language=language,
                     hint=hint,
                     page_context=shot.page_context,
+                    supports=[s.label for s in shot.supports],
                 ),
-            },
-        ]
+            }
+        )
         shot.messages = [{"role": "user", "content": user_content}]
         shot.analysis = ""
 

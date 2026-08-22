@@ -159,6 +159,66 @@ def click(target: str, browser: str | None = None) -> dict:
         return {"ok": False, "error": raw[:200]}
 
 
+# Panels that usually hold the half of the problem a screenshot cannot show.
+# Ordered: the earlier the word, the more it is worth opening.
+PANEL_KEYWORDS = (
+    "schema", "table", "data", "sample", "example", "constraint", "input",
+    "output", "test", "spec", "detail", "hint", "note", "definition", "column",
+)
+
+# Controls that do something rather than reveal something. Clicking these
+# during an explore pass would submit an answer or navigate away.
+DESTRUCTIVE = (
+    "submit", "run", "save", "delete", "sign in", "sign up", "log in", "logout",
+    "buy", "checkout", "next question", "skip", "reset", "clear", "close",
+    "cancel", "back", "continue", "finish", "give up", "reveal answer",
+)
+
+
+def _rank(label: str) -> int:
+    """Lower sorts first. -1 means: do not click this at all."""
+    low = label.lower().strip()
+    if not low or len(low) > 60:
+        return -1
+    if any(word in low for word in DESTRUCTIVE):
+        return -1
+    for i, word in enumerate(PANEL_KEYWORDS):
+        if word in low:
+            return i
+    return len(PANEL_KEYWORDS)
+
+
+def tab_plan(data: dict, limit: int = 4) -> dict:
+    """Which panels an explore pass should open, and what is open right now.
+
+    Only tab-like controls are considered — a plain button is as likely to
+    submit the answer as to reveal a schema, and this runs without the model
+    in the loop, so it has to be conservative.
+    """
+    active = ""
+    seen: set[str] = set()
+    ranked: list[tuple[int, int, str]] = []
+
+    for order, item in enumerate(data.get("clickables") or []):
+        label = (item.get("label") or "").strip()
+        if not label:
+            continue
+        key = label.lower()
+        if item.get("active") and item.get("tab") and not active:
+            active = label
+        if key in seen or not item.get("tab") or item.get("active"):
+            seen.add(key)
+            continue
+        seen.add(key)
+        score = _rank(label)
+        if score < 0:
+            continue
+        ranked.append((score, order, label))
+
+    ranked.sort()
+    return {"active": active, "tabs": [label for _, _, label in ranked[:limit]]}
+
+
 def summarize_for_model(data: dict, max_chars: int = 24000) -> str:
     """Render harvested page data into something compact and readable."""
     parts: list[str] = []

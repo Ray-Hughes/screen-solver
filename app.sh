@@ -48,8 +48,14 @@ case "${1:-run}" in
     ;;
   build)
     need_node_modules
-    ./node_modules/.bin/electron-builder --mac dir dmg
+    # Order matters. Building `dir dmg` in one pass images the app BEFORE
+    # adhoc_sign runs, so the .dmg ships the stock Electron binary — it
+    # identifies itself to macOS as "Electron", not dev.screensolver.app, and
+    # every Screen Recording grant lands on the wrong identity. Sign the app
+    # first, then image the already-signed bundle.
+    ./node_modules/.bin/electron-builder --mac dir
     adhoc_sign
+    ./node_modules/.bin/electron-builder --mac dmg --prepackaged "$APP_DIR"
     echo
     echo "built:  $(cd .. && pwd)/desktop/$APP_DIR"
     echo "dmg:    $(ls dist/*.dmg 2>/dev/null | head -1)"

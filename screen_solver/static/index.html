@@ -118,6 +118,16 @@
         the pixels are not enough. Claude also calls this on its own.
       </p>
       <button class="btn wide" id="btn-inspect">Inspect front tab</button>
+      <button class="btn wide" id="btn-explore">Explore page</button>
+      <p class="hint tiny">
+        Opens the other tabs on the page one at a time \u2014 schema, examples,
+        test cases \u2014 captures each, and puts the page back. Works without
+        the model needing tool support.
+      </p>
+      <label class="toggle">
+        <input type="checkbox" id="explore-first" />
+        <span>Explore before solving</span>
+      </label>
       <div class="ctx-state" id="ctx-state">no page context</div>
       <a class="bookmarklet" id="bookmarklet" href="#">⤓ Inspect bookmarklet</a>
       <p class="hint tiny">Drag to your bookmarks bar for browsers that block Apple Events.</p>
@@ -150,6 +160,7 @@
         <img id="shot-img" alt="" hidden />
         <div class="selection" id="selection" hidden></div>
       </div>
+      <div class="supports" id="supports" hidden></div>
     </div>
 
     <div class="splitter" id="splitter" title="Drag to resize"></div>

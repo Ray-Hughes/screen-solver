@@ -13,6 +13,21 @@ from . import capture
 
 
 @dataclass
+class Support:
+    """An extra capture attached to a shot.
+
+    The main screenshot only shows the tab that happened to be open. A support
+    is one of the others — the schema panel, the examples, the test cases —
+    captured separately and sent alongside it.
+    """
+
+    label: str
+    png: bytes
+    thumb: bytes
+    note: str = ""  # text harvested from that panel, when there is any
+
+
+@dataclass
 class Shot:
     id: str
     ts: float
@@ -27,6 +42,7 @@ class Shot:
     messages: list[dict[str, Any]] = field(default_factory=list)
     analysis: str = ""
     page_context: str = ""
+    supports: list[Support] = field(default_factory=list)
 
     def meta(self) -> dict[str, Any]:
         return {
@@ -37,7 +53,16 @@ class Shot:
             "height": self.height,
             "has_analysis": bool(self.analysis),
             "has_page_context": bool(self.page_context),
+            "supports": [
+                {"index": i, "label": sup.label, "chars": len(sup.note)}
+                for i, sup in enumerate(self.supports)
+            ],
         }
+
+    def add_support(self, label: str, png: bytes, note: str = "") -> Support:
+        sup = Support(label=label, png=png, thumb=capture.thumbnail(png), note=note)
+        self.supports.append(sup)
+        return sup
 
 
 class ShotStore:

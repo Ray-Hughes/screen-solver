@@ -92,6 +92,12 @@ def create_app(cfg: Config) -> FastAPI:
             raise HTTPException(404, "No such shot. Capture one first.")
         return shot
 
+    def _support_or_404(shot_id: str, index: int):
+        shot = _shot_or_404(shot_id)
+        if not 0 <= index < len(shot.supports):
+            raise HTTPException(404, "no such supporting capture")
+        return shot.supports[index]
+
     async def _do_capture(display: int | None = None):
         idx = display or settings["capture_display"]
         png = await asyncio.to_thread(capture.grab_png, idx)
@@ -168,6 +174,59 @@ def create_app(cfg: Config) -> FastAPI:
             )
         return shot.meta()
 
+    @app.post("/api/capture/support")
+    async def push_support(request: Request):
+        """Attach an extra capture to a shot.
+
+        Posted by the desktop shell during an explore pass, or by hand from
+        the dashboard. Capture has to happen in the app bundle, so the shell
+        takes the picture and this only files it.
+        """
+        png = await request.body()
+        if not png:
+            raise HTTPException(400, "empty image")
+        q = request.query_params
+        shot = store.get(q.get("shot_id") or "") or store.latest()
+        if shot is None:
+            raise HTTPException(404, "no shot to attach this to")
+        shot.add_support(q.get("label") or "extra capture", png, q.get("note") or "")
+        bus.publish("shot_updated", shot.meta())
+        return shot.meta()
+
+    @app.post("/api/explore/plan")
+    async def explore_plan():
+        """Harvest the page and say which panels are worth opening."""
+        try:
+            data = await asyncio.to_thread(page_inspect.harvest)
+        except page_inspect.InspectError as exc:
+            raise HTTPException(400, str(exc))
+
+        plan = page_inspect.tab_plan(data)
+        text = page_inspect.summarize_for_model(data)
+        shot = store.latest()
+        if shot is not None:
+            shot.page_context = text
+            bus.publish("page_context", {"shot_id": shot.id, "chars": len(text)})
+        return {**plan, "chars": len(text)}
+
+    @app.post("/api/explore/open")
+    async def explore_open(body: dict = Body(...)):
+        """Click one panel open and report what it turned out to contain."""
+        label = (body.get("label") or "").strip()
+        if not label:
+            raise HTTPException(400, "label is required")
+        try:
+            result = await asyncio.to_thread(page_inspect.click, label)
+            if not result.get("ok"):
+                return {"ok": False, "label": label, "error": result.get("error", "")}
+            await asyncio.sleep(float(body.get("settle") or 0.7))
+            data = await asyncio.to_thread(page_inspect.harvest)
+        except page_inspect.InspectError as exc:
+            raise HTTPException(400, str(exc))
+
+        text = page_inspect.summarize_for_model(data)
+        return {"ok": True, "label": result.get("clicked") or label, "note": text}
+
     @app.post("/api/displays/refresh")
     async def refresh_displays():
         """Re-probe after the user grants Screen Recording.
@@ -212,6 +271,14 @@ def create_app(cfg: Config) -> FastAPI:
     @app.get("/api/shots/{shot_id}.png")
     async def shot_png(shot_id: str):
         return Response(_shot_or_404(shot_id).png, media_type="image/png")
+
+    @app.get("/api/shots/{shot_id}/support/{index}.png")
+    async def support_png(shot_id: str, index: int):
+        return Response(_support_or_404(shot_id, index).png, media_type="image/png")
+
+    @app.get("/api/shots/{shot_id}/support/{index}/thumb.jpg")
+    async def support_thumb(shot_id: str, index: int):
+        return Response(_support_or_404(shot_id, index).thumb, media_type="image/jpeg")
 
     @app.get("/api/shots/{shot_id}/thumb.jpg")
     async def shot_thumb(shot_id: str):

@@ -97,6 +97,9 @@ class Config:
     # Longest edge sent to the API. 1568px is the point above which the
     # API downscales anyway, so going higher only costs upload time.
     max_edge: int
+    # Supporting captures are context, not the subject, so they are sent
+    # smaller — four of them at full size would dwarf the main screenshot.
+    support_max_edge: int
     # True when launched by the Electron shell, which adds global hotkeys
     # and a menu-bar item the browser build cannot offer.
     desktop: bool
@@ -130,6 +133,7 @@ class Config:
             shots_dir=Path(os.environ.get("SOLVER_SHOTS_DIR") or (PROJECT_ROOT / "shots")),
             keep_shots=_int("SOLVER_KEEP_SHOTS", 40),
             max_edge=_int("SOLVER_MAX_EDGE", 1568),
+            support_max_edge=_int("SOLVER_SUPPORT_MAX_EDGE", 1024),
             desktop=os.environ.get("SOLVER_DESKTOP") == "1",
         )
 
