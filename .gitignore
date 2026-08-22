@@ -1,0 +1,7 @@
+.env
+__pycache__/
+*.pyc
+.venv/
+shots/
+desktop/node_modules/
+desktop/dist/

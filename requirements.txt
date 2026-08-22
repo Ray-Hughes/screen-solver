@@ -1,0 +1,6 @@
+anthropic>=0.69
+fastapi>=0.115
+uvicorn[standard]>=0.32
+pillow>=10.4
+# Only used when SOLVER_PROVIDER points at a local / OpenAI-compatible server.
+openai>=1.50

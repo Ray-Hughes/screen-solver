@@ -1,0 +1,312 @@
+<!doctype html>
+<html lang="en" data-theme="dark">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>screen-solver</title>
+<link rel="stylesheet" href="/static/styles.css" />
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🧩</text></svg>" />
+</head>
+<body>
+
+<header class="topbar">
+  <div class="brand">
+    <span class="dot" id="conn-dot"></span>
+    <strong>screen-solver</strong>
+    <span class="chip" id="model-chip">—</span>
+  </div>
+  <div class="topbar-status" id="status">idle</div>
+  <button class="chip auth" id="auth-pill" title="Anthropic account">checking…</button>
+  <div class="topbar-actions">
+    <button class="btn primary" id="btn-capture" title="Capture the screen (Space)">
+      <kbd>Space</kbd> Capture
+    </button>
+    <button class="btn accent" id="btn-solve" title="Solve the current shot (S)">
+      <kbd>S</kbd> Solve
+    </button>
+    <button class="btn ghost" id="btn-cancel" hidden>Stop</button>
+    <button class="btn ghost" id="btn-settings" title="Settings">⚙</button>
+  </div>
+</header>
+
+<div class="authbar" id="authbar" hidden>
+  <span class="authbar-text" id="authbar-text">
+    Not signed in — capture works, solving does not.
+  </span>
+  <a class="authbar-link" id="authbar-url" href="#" target="_blank" rel="noopener" hidden>
+    open the authorize page
+  </a>
+  <form class="authbar-code" id="authbar-code" hidden>
+    <input id="auth-code" placeholder="Paste the code from the browser" autocomplete="off" />
+    <button class="btn tiny accent" type="submit">Submit</button>
+  </form>
+  <button class="btn tiny accent" id="authbar-signin">Sign in with Anthropic</button>
+  <button class="btn tiny ghost" id="authbar-cancel" hidden>Cancel</button>
+  <a class="authbar-link" href="https://console.anthropic.com/settings/billing"
+     target="_blank" rel="noopener">API billing</a>
+  <button class="btn tiny ghost" id="authbar-dismiss">Dismiss</button>
+</div>
+
+<div class="authbar permbar" id="permbar" hidden>
+  <span class="authbar-text" id="permbar-text"></span>
+  <button class="btn tiny accent" id="permbar-grant">Grant access</button>
+  <button class="btn tiny" id="permbar-open">Open Privacy Settings</button>
+  <button class="btn tiny" id="permbar-recheck">Re-check</button>
+</div>
+
+<main class="grid">
+
+  <!-- ─────────────── controls ─────────────── -->
+  <aside class="rail panel">
+    <section class="block">
+      <h3>Capture</h3>
+      <label class="field">
+        <span>Display</span>
+        <select id="display"></select>
+      </label>
+      <p class="hint">Put this dashboard on a different display than the one you capture.</p>
+      <button class="btn wide" id="btn-capture-solve">Capture &amp; solve</button>
+      <div class="hotkeys" id="hotkeys" hidden>
+        <div class="hotkeys-head">Global hotkeys — work anywhere</div>
+        <dl id="hotkeys-list"></dl>
+      </div>
+    </section>
+
+    <section class="block">
+      <h3>Watch</h3>
+      <label class="toggle">
+        <input type="checkbox" id="watch-enabled" />
+        <span>Auto-capture on screen change</span>
+      </label>
+      <label class="toggle">
+        <input type="checkbox" id="watch-auto" />
+        <span>Solve automatically</span>
+      </label>
+      <label class="field inline">
+        <span>Every</span>
+        <input type="number" id="watch-interval" min="1" max="60" step="1" value="2" />
+        <span>s</span>
+      </label>
+      <label class="field inline">
+        <span>Sensitivity</span>
+        <input type="range" id="watch-threshold" min="1" max="20" value="6" />
+      </label>
+    </section>
+
+    <section class="block">
+      <h3>Solve as</h3>
+      <div class="segmented" id="mode">
+        <button data-mode="auto" class="on">Auto</button>
+        <button data-mode="sql">SQL</button>
+        <button data-mode="coding">Code</button>
+        <button data-mode="explain">Explain</button>
+      </div>
+      <label class="field">
+        <span>Language / dialect</span>
+        <input id="language" placeholder="e.g. Python 3, SQLite, Postgres" />
+      </label>
+      <label class="field">
+        <span>Note to the model</span>
+        <textarea id="hint" rows="2" placeholder="Optional: focus on the second tab, ignore the terminal…"></textarea>
+      </label>
+    </section>
+
+    <section class="block">
+      <h3>Page inspection</h3>
+      <p class="hint">
+        Pulls the live DOM — hidden tabs, schema panels, editor buffers — when
+        the pixels are not enough. Claude also calls this on its own.
+      </p>
+      <button class="btn wide" id="btn-inspect">Inspect front tab</button>
+      <div class="ctx-state" id="ctx-state">no page context</div>
+      <a class="bookmarklet" id="bookmarklet" href="#">⤓ Inspect bookmarklet</a>
+      <p class="hint tiny">Drag to your bookmarks bar for browsers that block Apple Events.</p>
+    </section>
+
+    <section class="block grow">
+      <h3>Shots</h3>
+      <div class="filmstrip" id="filmstrip"></div>
+    </section>
+  </aside>
+
+  <div class="vsplit" id="split-left" title="Drag to resize · double-click to reset"></div>
+
+  <!-- ─────────────── stage ─────────────── -->
+  <section class="stage">
+    <div class="panel viewer" id="viewer-panel">
+      <div class="panel-head">
+        <h3>Viewing</h3>
+        <div class="spacer"></div>
+        <span class="chip subtle" id="shot-meta">no capture yet</span>
+        <button class="btn tiny" id="btn-region">Region</button>
+        <button class="btn tiny" id="btn-fit">Fit</button>
+      </div>
+      <div class="viewport" id="viewport">
+        <div class="empty" id="viewer-empty">
+          <div class="empty-art">▢</div>
+          <p>Press <kbd>Space</kbd> to capture the screen.</p>
+          <p class="tiny">Silent — no shutter sound, no flash, no overlay.</p>
+        </div>
+        <img id="shot-img" alt="" hidden />
+        <div class="selection" id="selection" hidden></div>
+      </div>
+    </div>
+
+    <div class="splitter" id="splitter" title="Drag to resize"></div>
+
+    <div class="panel solution">
+      <div class="panel-head">
+        <nav class="tabs" id="answer-tabs">
+          <button data-view="solution">Solution</button>
+          <button data-view="breakdown" class="on">Breakdown</button>
+        </nav>
+        <div class="spacer"></div>
+        <button class="btn tiny ghost" id="btn-copy-solution" hidden>Copy code</button>
+        <span class="chip subtle" id="usage"></span>
+      </div>
+
+      <!-- Jumping between sections belongs to the breakdown, not the header:
+           it used to sit in the head and got squeezed off the edge. -->
+      <nav class="section-nav" id="section-nav" hidden></nav>
+
+      <article class="markdown" id="solution" hidden>
+        <div class="empty small">
+          <p>The finished code will appear here on its own, with nothing else
+             around it.</p>
+        </div>
+      </article>
+
+      <article class="markdown" id="breakdown">
+        <div class="empty small">
+          <p>The extracted problem and its full breakdown will appear here.</p>
+        </div>
+      </article>
+    </div>
+  </section>
+
+  <div class="vsplit" id="split-right" title="Drag to resize · double-click to reset"></div>
+
+  <!-- ─────────────── chat ─────────────── -->
+  <aside class="chat panel">
+    <div class="panel-head">
+      <h3>Chat</h3>
+      <div class="spacer"></div>
+      <button class="btn tiny ghost" id="btn-thinking">Reasoning</button>
+      <button class="btn tiny ghost" id="btn-clear-chat">Clear</button>
+    </div>
+
+    <div class="thinking" id="thinking" hidden>
+      <div class="thinking-head">reasoning</div>
+      <pre id="thinking-text"></pre>
+    </div>
+
+    <div class="transcript" id="transcript">
+      <div class="empty small">
+        <p>Ask anything about the current problem — “why not a self-join?”,
+           “rewrite it for Postgres”, “what would the interviewer ask next?”</p>
+      </div>
+    </div>
+
+    <form class="composer" id="composer">
+      <textarea id="chat-input" rows="2" placeholder="Ask a follow-up…  ⌘⏎ to send"></textarea>
+      <button class="btn accent" type="submit">Send</button>
+    </form>
+  </aside>
+
+</main>
+
+<div class="modal" id="settings" hidden>
+  <div class="modal-backdrop" data-close></div>
+  <div class="modal-panel panel">
+    <div class="panel-head">
+      <h3>Settings</h3>
+      <div class="spacer"></div>
+      <button class="btn tiny ghost" data-close>Close</button>
+    </div>
+
+    <div class="modal-body">
+      <section class="block">
+        <h3>Model</h3>
+
+        <label class="field">
+          <span>Provider</span>
+          <select id="set-provider"></select>
+        </label>
+
+        <label class="field" id="row-base-url">
+          <span>Server address</span>
+          <input id="set-base-url" placeholder="http://127.0.0.1:11434/v1" autocomplete="off" />
+        </label>
+
+        <label class="field" id="row-api-key">
+          <span>API key</span>
+          <input id="set-api-key" type="password" placeholder="only if your gateway needs one" autocomplete="off" />
+        </label>
+
+        <label class="field">
+          <span>Model</span>
+          <div class="field-row">
+            <input id="set-model" list="model-options" placeholder="model id" autocomplete="off" />
+            <button class="btn tiny" id="btn-refresh-models" type="button">Refresh</button>
+          </div>
+        </label>
+        <datalist id="model-options"></datalist>
+        <p class="hint" id="model-hint">Every solve sends a screenshot, so the model has to read images.</p>
+
+        <label class="field" id="row-effort">
+          <span>Reasoning effort</span>
+          <select id="set-effort"></select>
+        </label>
+
+        <label class="field" id="row-tools">
+          <span>Page-inspection tools</span>
+          <select id="set-tools"></select>
+        </label>
+        <p class="hint tiny">
+          Lets the model read hidden tabs and editor buffers from the live DOM.
+          Most local models cannot do this; <em>auto</em> turns it off the first
+          time the server refuses.
+        </p>
+      </section>
+
+      <section class="block">
+        <h3>Limits</h3>
+        <label class="field inline">
+          <span>Max reply tokens</span>
+          <input type="number" id="set-max-tokens" min="256" step="256" />
+        </label>
+        <label class="field inline">
+          <span>Temperature</span>
+          <input type="number" id="set-temperature" min="0" max="2" step="0.05" />
+        </label>
+        <label class="field inline">
+          <span>Screenshot long edge</span>
+          <input type="number" id="set-max-edge" min="512" step="64" />
+        </label>
+        <label class="field inline">
+          <span>Watch poll seconds</span>
+          <input type="number" id="set-watch-interval" min="1" step="0.5" />
+        </label>
+        <label class="field inline">
+          <span>Shots kept</span>
+          <input type="number" id="set-keep-shots" min="1" step="1" />
+        </label>
+        <p class="hint tiny" id="settings-file"></p>
+      </section>
+    </div>
+
+    <div class="modal-foot">
+      <span class="hint tiny" id="settings-status"></span>
+      <div class="spacer"></div>
+      <button class="btn" data-close>Cancel</button>
+      <button class="btn accent" id="settings-save">Save</button>
+    </div>
+  </div>
+</div>
+
+<div class="toast" id="toast" hidden></div>
+
+<script src="/static/markdown.js"></script>
+<script src="/static/app.js"></script>
+</body>
+</html>

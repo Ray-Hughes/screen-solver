@@ -1,0 +1,13 @@
+#!/usr/bin/env bash
+# Trigger a silent capture (and optionally a solve) from anywhere.
+# Bind this to a global hotkey with Raycast, Alfred, BetterTouchTool or
+# Shortcuts.app → "Run Shell Script" so you never touch the dashboard.
+#
+#   solve-capture          capture only
+#   solve-capture --solve  capture and immediately solve
+PORT="${SOLVER_PORT:-8787}"
+BODY='{}'
+[ "${1:-}" = "--solve" ] && BODY='{"analyze":true}'
+curl -fsS -X POST "http://127.0.0.1:${PORT}/api/capture" \
+  -H 'Content-Type: application/json' -d "$BODY" >/dev/null \
+  && echo "captured" || { echo "screen-solver is not running on :${PORT}" >&2; exit 1; }

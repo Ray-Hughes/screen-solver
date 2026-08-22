@@ -1,0 +1,38 @@
+{
+  "name": "screen-solver-desktop",
+  "productName": "Screen Solver",
+  "version": "0.1.0",
+  "description": "Silent screen capture with a Claude-powered problem solver",
+  "main": "main.js",
+  "private": true,
+  "scripts": {
+    "start": "electron .",
+    "dist": "electron-builder --mac",
+    "sign:adhoc": "codesign --force --deep --sign - 'dist/mac-arm64/Screen Solver.app' || codesign --force --deep --sign - 'dist/mac/Screen Solver.app'"
+  },
+  "devDependencies": {
+    "electron": "^43.4.1",
+    "electron-builder": "^26.15.3"
+  },
+  "build": {
+    "appId": "dev.screensolver.app",
+    "productName": "Screen Solver",
+    "directories": { "buildResources": "build", "output": "dist" },
+    "files": ["main.js", "preload.js", "loading.html", "assets/**/*"],
+    "extraResources": [
+      { "from": "../screen_solver", "to": "python/screen_solver",
+        "filter": ["**/*", "!**/__pycache__/**"] },
+      { "from": "../requirements.txt", "to": "python/requirements.txt" }
+    ],
+    "mac": {
+      "category": "public.app-category.developer-tools",
+      "target": [{ "target": "dir", "arch": ["arm64"] }, { "target": "dmg", "arch": ["arm64"] }],
+      "hardenedRuntime": false,
+      "gatekeeperAssess": false,
+      "extendInfo": {
+        "NSAppleEventsUsageDescription": "Screen Solver reads the page in your frontmost browser tab to recover schemas, hidden tabs and editor contents that are not visible in a screenshot.",
+        "LSMinimumSystemVersion": "12.0"
+      }
+    }
+  }
+}
