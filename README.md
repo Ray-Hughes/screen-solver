@@ -41,8 +41,9 @@ Requires **macOS 12 or newer**. Apple Silicon and Intel both work.
 
 ### Option A — download the app
 
-1. Grab the latest `Screen Solver-*.dmg` from
-   [Releases](https://github.com/Ray-Hughes/screen-solver/releases).
+1. Grab the latest `.dmg` from
+   [Releases](https://github.com/Ray-Hughes/screen-solver/releases/latest).
+   Apple Silicon only for now — on an Intel Mac, build from source below.
 2. Open the `.dmg` and drag **Screen Solver** into **Applications**.
 3. **Clear the quarantine flag.** The app is ad-hoc signed rather than
    notarized (it costs $99/yr to notarize), so macOS will otherwise refuse it
