@@ -451,6 +451,43 @@
       });
     }
 
+    // Narrate the pass. Opening tabs on another display is invisible from
+    // here, so without this it just looks like a long pause.
+    if (d.onExploreProgress) {
+      d.onExploreProgress((p) => {
+        switch (p.phase) {
+          case "planning":
+            setStatus("reading the page…", "busy");
+            break;
+          case "start":
+            if (!p.total) {
+              addEvent("explore: no other panels to open", "tool");
+              break;
+            }
+            addEvent(`explore: opening ${p.total} panel(s) — ${p.tabs.join(", ")}`, "tool");
+            break;
+          case "opening":
+            setStatus(`exploring ${p.index}/${p.total} — ${p.label}…`, "busy");
+            break;
+          case "captured":
+            addEvent(`explore: captured “${p.label}” (${p.index}/${p.total})`, "tool");
+            break;
+          case "failed":
+            addEvent(`explore: could not open “${p.label}” — ${p.message}`, "err");
+            break;
+          case "restoring":
+            setStatus(`restoring “${p.label}”…`, "busy");
+            break;
+          case "done":
+            setStatus(
+              p.panels.length ? `explored ${p.panels.length} panel(s)` : "nothing to explore",
+              "live"
+            );
+            break;
+        }
+      });
+    }
+
     d.onCaptureError(({ message }) => {
       setStatus("capture failed", "err");
       toast(message, true);
@@ -1012,7 +1049,6 @@
     try {
       const r = await window.solverDesktop.explore({ shot_id: state.shotId });
       const n = (r.panels || []).length;
-      addEvent(n ? `explored: ${r.panels.join(", ")}` : "no other panels found", "tool");
       toast(n ? `Captured ${n} more panel(s).` : "No other panels to open.");
     } catch (e) {
       toast(e.message, true);
@@ -1098,10 +1134,14 @@
   });
 
   el.chatInput.addEventListener("keydown", (e) => {
-    if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) {
-      e.preventDefault();
-      el.composer.requestSubmit();
-    }
+    if (e.key !== "Enter") return;
+    // Enter sends; Shift+Enter is a newline. ⌘/Ctrl+Enter still sends too,
+    // since that was the binding before.
+    if (e.shiftKey && !(e.metaKey || e.ctrlKey)) return;
+    // Don't send half a word while an IME candidate window is open.
+    if (e.isComposing) return;
+    e.preventDefault();
+    el.composer.requestSubmit();
   });
 
   document.addEventListener("keydown", (e) => {

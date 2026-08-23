@@ -617,33 +617,58 @@ async function pushSupport(shotId, label, note, png) {
   });
 }
 
+/** Narrate the pass to the dashboard, so it is visibly doing something. */
+function exploreProgress(payload) {
+  if (win && !win.isDestroyed()) win.webContents.send("explore-progress", payload);
+}
+
 async function explorePage(shotId) {
+  exploreProgress({ phase: "planning" });
   const plan = await post("/api/explore/plan");
+  const tabs = plan.tabs || [];
+  const total = tabs.length;
   const opened = [];
 
-  for (const label of plan.tabs || []) {
+  exploreProgress({ phase: "start", total, tabs, active: plan.active || "" });
+  if (!total) {
+    exploreProgress({ phase: "done", panels: [], total: 0 });
+    return opened;
+  }
+
+  for (let i = 0; i < tabs.length; i++) {
+    const label = tabs[i];
+    const step = { label, index: i + 1, total };
+
+    exploreProgress({ phase: "opening", ...step });
     let result;
     try {
       result = await post("/api/explore/open", { label });
     } catch (err) {
-      console.error(`[solver] explore ${label}: ${err.message}`);
+      exploreProgress({ phase: "failed", ...step, message: err.message });
       continue;
     }
-    if (!result.ok) continue;
+    if (!result.ok) {
+      exploreProgress({ phase: "failed", ...step, message: result.error || "could not open it" });
+      continue;
+    }
 
     try {
       const { png } = await grabDisplay(captureDisplayIndex);
       await pushSupport(shotId, result.label, result.note, png);
       opened.push(result.label);
+      exploreProgress({ phase: "captured", ...step, label: result.label });
     } catch (err) {
-      console.error(`[solver] could not capture ${label}: ${err.message}`);
+      exploreProgress({ phase: "failed", ...step, message: err.message });
     }
   }
 
   // Put the page back the way it was found — the user is looking at it.
   if (plan.active) {
+    exploreProgress({ phase: "restoring", label: plan.active });
     await post("/api/explore/open", { label: plan.active, settle: 0.2 }).catch(() => {});
   }
+
+  exploreProgress({ phase: "done", panels: opened, total });
   return opened;
 }
 

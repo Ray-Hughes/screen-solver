@@ -174,6 +174,15 @@ DESTRUCTIVE = (
     "cancel", "back", "continue", "finish", "give up", "reveal answer",
 )
 
+# Panels that open fine but hold nothing about the problem — or, in the case
+# of the site's own worked answer, so much that the model would copy it
+# instead of solving anything.
+IRRELEVANT = (
+    "ask", "chat", "discuss", "comment", "submission", "leaderboard",
+    "profile", "settings", "editorial", "video", "premium", "upgrade",
+    "solution", "answer",
+)
+
 
 def _rank(label: str) -> int:
     """Lower sorts first. -1 means: do not click this at all."""
@@ -181,6 +190,8 @@ def _rank(label: str) -> int:
     if not low or len(low) > 60:
         return -1
     if any(word in low for word in DESTRUCTIVE):
+        return -1
+    if any(word in low for word in IRRELEVANT):
         return -1
     for i, word in enumerate(PANEL_KEYWORDS):
         if word in low:
@@ -194,10 +205,17 @@ def tab_plan(data: dict, limit: int = 4) -> dict:
     Only tab-like controls are considered — a plain button is as likely to
     submit the answer as to reveal a schema, and this runs without the model
     in the loop, so it has to be conservative.
+
+    Panels whose name promises problem context ("Schema & data", "Test cases")
+    are always preferred; unnamed ones are opened only to fill the remaining
+    budget, since a tab nobody can identify is as likely to navigate away as
+    to help.
     """
     active = ""
     seen: set[str] = set()
-    ranked: list[tuple[int, int, str]] = []
+    named: list[tuple[int, int, str]] = []
+    unnamed: list[tuple[int, int, str]] = []
+    generic = len(PANEL_KEYWORDS)
 
     for order, item in enumerate(data.get("clickables") or []):
         label = (item.get("label") or "").strip()
@@ -213,10 +231,15 @@ def tab_plan(data: dict, limit: int = 4) -> dict:
         score = _rank(label)
         if score < 0:
             continue
-        ranked.append((score, order, label))
+        (unnamed if score >= generic else named).append((score, order, label))
 
-    ranked.sort()
-    return {"active": active, "tabs": [label for _, _, label in ranked[:limit]]}
+    named.sort()
+    unnamed.sort()
+    chosen = named[:limit]
+    if len(chosen) < limit:
+        chosen += unnamed[: limit - len(chosen)]
+
+    return {"active": active, "tabs": [label for _, _, label in chosen]}
 
 
 def summarize_for_model(data: dict, max_chars: int = 24000) -> str:

@@ -102,11 +102,30 @@
   }
   out.code_blocks = pre;
 
-  /* Is this control the one currently showing its panel? Needed so an
-     explore pass can put the page back the way it found it. */
-  function isActive(el) {
+  /* Finding the tab bar.
+     Sites almost never mark tabs up as tabs. On the page this was built
+     against, "Description / Schema & data / Hints / Ask / Solution" are five
+     plain <button>s with utility classes and no role, so matching on
+     role="tab" or a class name finds nothing.
+     What is reliable is the shape: a tab bar is several sibling controls in
+     one parent, and the open one is the only one that looks different. */
+
+  function labelOf(el) {
+    return clean(el.innerText || el.textContent || el.getAttribute("aria-label") || "");
+  }
+
+  /* A visual fingerprint. The active tab is the odd one out among its
+     siblings — highlighted, underlined, bolder — whatever the framework. */
+  function styleSig(el) {
+    var cs = window.getComputedStyle(el);
+    return [
+      cs.backgroundColor, cs.color, cs.fontWeight,
+      cs.borderBottomColor, cs.borderBottomWidth, cs.opacity
+    ].join("|");
+  }
+
+  function explicitState(el) {
     if (el.getAttribute("aria-selected") === "true") return true;
-    if (el.getAttribute("aria-expanded") === "true") return true;
     if (el.getAttribute("data-state") === "active") return true;
     if (el.tagName.toLowerCase() === "summary") {
       return !!(el.parentElement && el.parentElement.hasAttribute("open"));
@@ -116,32 +135,69 @@
     return / (active|selected|is-active|is-selected|current) /.test(cls);
   }
 
-  /* A tab-like control opens a panel of content; a plain button usually
-     submits or navigates. Only the former is worth clicking blind. */
-  function isTabLike(el) {
-    var role = el.getAttribute("role");
-    if (role === "tab") return true;
-    if (el.tagName.toLowerCase() === "summary") return true;
-    if (el.hasAttribute("data-tab") || el.hasAttribute("data-tab-id")) return true;
-    if (el.closest('[role="tablist"], .tabs, .tab-list, .tab-bar')) return true;
-    var cls = " " + (el.className && el.className.baseVal !== undefined
-      ? el.className.baseVal : (el.className || "")) + " ";
-    return / (tab|tab-item|nav-link) /.test(cls);
+  var controls = document.querySelectorAll(
+    'button, [role="tab"], summary, a[href="#"], [role="button"], .tab, li[data-tab]'
+  );
+
+  /* Bucket by parent, so siblings can be compared with each other. */
+  var parents = [], buckets = [];
+  for (var c = 0; c < controls.length; c++) {
+    var el = controls[c];
+    var lbl = labelOf(el);
+    if (!lbl || lbl.length > 80 || isHidden(el)) continue;
+    var parent = el.parentElement;
+    var at = -1;
+    for (var q = 0; q < parents.length; q++) if (parents[q] === parent) { at = q; break; }
+    if (at < 0) { parents.push(parent); buckets.push([]); at = parents.length - 1; }
+    buckets[at].push({ el: el, label: lbl });
   }
 
   var clickables = [];
-  var cand2 = document.querySelectorAll(
-    'button, [role="tab"], summary, a[href="#"], [role="button"], .tab, li[data-tab]'
-  );
-  for (var b = 0; b < cand2.length && clickables.length < 60; b++) {
-    var lbl = clean(cand2[b].innerText || cand2[b].textContent || cand2[b].getAttribute("aria-label") || "");
-    if (lbl && lbl.length < 80) {
+  for (var g = 0; g < buckets.length && clickables.length < 60; g++) {
+    var group = buckets[g];
+    var isSummary = group.length === 1 && group[0].el.tagName.toLowerCase() === "summary";
+    var hasRole = group[0].el.getAttribute("role") === "tab";
+    // Two or more siblings behaving alike is the tab-bar signal; a lone
+    // <summary> is a disclosure, which is the same idea with one control.
+    var groupIsTabs = isSummary || hasRole || group.length >= 2;
+
+    /* Which sibling is open: an explicit flag if the site sets one,
+       otherwise the one whose look is unique within the group. */
+    var activeIndex = -1;
+    for (var k = 0; k < group.length; k++) {
+      if (explicitState(group[k].el)) { activeIndex = k; break; }
+    }
+    if (activeIndex < 0 && group.length >= 2) {
+      var sigs = [], counts = [];
+      for (var m = 0; m < group.length; m++) {
+        var sig = styleSig(group[m].el);
+        sigs.push(sig);
+        var found = false;
+        for (var n = 0; n < counts.length; n++) {
+          if (counts[n].sig === sig) { counts[n].n++; found = true; break; }
+        }
+        if (!found) counts.push({ sig: sig, n: 1 });
+      }
+      // Exactly one sibling looking different is a highlighted tab. Two or
+      // more differing means it is just a row of unlike buttons.
+      if (counts.length >= 2) {
+        var singles = [];
+        for (var t = 0; t < counts.length; t++) if (counts[t].n === 1) singles.push(counts[t].sig);
+        if (singles.length === 1) {
+          for (var u = 0; u < sigs.length; u++) if (sigs[u] === singles[0]) activeIndex = u;
+        }
+      }
+    }
+
+    for (var b = 0; b < group.length && clickables.length < 60; b++) {
       clickables.push({
-        label: lbl,
-        tag: cand2[b].tagName.toLowerCase(),
-        hidden: isHidden(cand2[b]),
-        tab: isTabLike(cand2[b]),
-        active: isActive(cand2[b])
+        label: group[b].label,
+        tag: group[b].el.tagName.toLowerCase(),
+        hidden: false,
+        tab: groupIsTabs,
+        group: g,
+        siblings: group.length,
+        active: b === activeIndex
       });
     }
   }

@@ -26,5 +26,6 @@ contextBridge.exposeInMainWorld("solverDesktop", {
   onWatch: (fn) => ipcRenderer.on("watch", (_e, d) => fn(d)),
   onCaptureError: (fn) => ipcRenderer.on("capture-error", (_e, d) => fn(d)),
   onExploreError: (fn) => ipcRenderer.on("explore-error", (_e, d) => fn(d)),
+  onExploreProgress: (fn) => ipcRenderer.on("explore-progress", (_e, d) => fn(d)),
   onCommand: (fn) => ipcRenderer.on("command", (_e, name) => fn(name)),
 });
