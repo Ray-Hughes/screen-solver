@@ -8,6 +8,7 @@
     captureSolve: $("btn-capture-solve"),
     display: $("display"),
     watchEnabled: $("watch-enabled"), watchAuto: $("watch-auto"),
+    watchAutoHint: $("watch-auto-hint"),
     watchInterval: $("watch-interval"), watchThreshold: $("watch-threshold"),
     mode: $("mode"), language: $("language"), hint: $("hint"),
     inspect: $("btn-inspect"), ctxState: $("ctx-state"), bookmarklet: $("bookmarklet"),
@@ -104,6 +105,7 @@
       hint: el.hint.value.trim(),
       region: state.region,
       shot_id: state.shotId,
+      // Only meaningful for a solve — see doCapture, which drops it otherwise.
       explore: !!(el.exploreFirst.checked && window.solverDesktop),
     };
   }
@@ -330,17 +332,22 @@
         .join("");
   }
 
+  /** Put one of this shot's captures in the viewer. -1 is the main one. */
+  function showSupport(index) {
+    if (!state.shotId) return;
+    el.img.src =
+      index < 0
+        ? `/api/shots/${state.shotId}.png`
+        : `/api/shots/${state.shotId}/support/${index}.png`;
+    el.supports.querySelectorAll(".support").forEach((n) => {
+      n.classList.toggle("on", Number(n.dataset.index) === index);
+    });
+    clearRegion();
+  }
+
   el.supports.addEventListener("click", (e) => {
     const btn = e.target.closest(".support");
-    if (!btn || !state.shotId) return;
-    const i = Number(btn.dataset.index);
-    el.img.src =
-      i < 0
-        ? `/api/shots/${state.shotId}.png`
-        : `/api/shots/${state.shotId}/support/${i}.png`;
-    el.supports.querySelectorAll(".support").forEach((n) => n.classList.remove("on"));
-    btn.classList.add("on");
-    clearRegion();
+    if (btn) showSupport(Number(btn.dataset.index));
   });
 
   function markFilmstrip() {
@@ -971,6 +978,10 @@
       analyze: !!andSolve,
       ...opts(),
     };
+    // "Explore before solving" means exactly that. On a plain capture the
+    // pass would open four tabs, take four screenshots and then solve
+    // nothing, which is what it looked like was happening.
+    if (!andSolve) body.explore = false;
     try {
       setStatus("capturing…", "busy");
       // In the desktop app the frame is grabbed by the app bundle itself, so
@@ -1095,6 +1106,19 @@
     if (window.solverDesktop) window.solverDesktop.setWatch(cfg);
     api("/api/watch", cfg).catch((e) => toast(e.message, true));
   }
+  /* "Solve each auto-capture" does nothing unless watch mode is on, which
+     is not obvious from a checkbox sitting right under it. */
+  function syncWatchControls() {
+    const on = el.watchEnabled.checked;
+    el.watchAuto.disabled = !on;
+    el.watchAuto.parentElement.style.opacity = on ? "" : ".5";
+    el.watchAuto.parentElement.title = on
+      ? ""
+      : "Turn on Auto-capture on screen change first.";
+  }
+  el.watchEnabled.addEventListener("change", syncWatchControls);
+  syncWatchControls();
+
   [el.watchEnabled, el.watchAuto, el.watchInterval, el.watchThreshold].forEach((n) =>
     n.addEventListener("change", pushWatch)
   );
@@ -1285,7 +1309,12 @@
     // A supporting capture landed on the shot we are looking at.
     es.addEventListener("shot_updated", (e) => {
       const meta = JSON.parse(e.data);
-      if (meta.id === state.shotId) renderSupports(meta);
+      if (meta.id !== state.shotId) return;
+      const grew = (meta.supports || []).length > (state.supports || []).length;
+      renderSupports(meta);
+      // Follow the newest one into the viewer, so you watch the panels being
+      // read rather than staring at the first screenshot the whole time.
+      if (grew) showSupport(meta.supports[meta.supports.length - 1].index);
     });
 
     // Another window (or the settings panel) changed the model.
@@ -1314,6 +1343,7 @@
       applyCaptureError(s.capture_error);
       el.watchEnabled.checked = s.watch.enabled;
       el.watchAuto.checked = s.watch.auto_analyze;
+      syncWatchControls();
       el.watchInterval.value = s.watch.interval;
       el.watchThreshold.value = s.watch.threshold;
       s.shots.slice().reverse().forEach((m) => addToFilmstrip(m, true));

@@ -1,7 +1,7 @@
 {
   "name": "screen-solver-desktop",
   "productName": "Screen Solver",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "Silent screen capture with a Claude-powered problem solver",
   "main": "main.js",
   "private": true,
@@ -17,16 +17,46 @@
   "build": {
     "appId": "dev.screensolver.app",
     "productName": "Screen Solver",
-    "directories": { "buildResources": "build", "output": "dist" },
-    "files": ["main.js", "preload.js", "loading.html", "assets/**/*"],
+    "directories": {
+      "buildResources": "build",
+      "output": "dist"
+    },
+    "files": [
+      "main.js",
+      "preload.js",
+      "loading.html",
+      "assets/**/*"
+    ],
     "extraResources": [
-      { "from": "../screen_solver", "to": "python/screen_solver",
-        "filter": ["**/*", "!**/__pycache__/**"] },
-      { "from": "../requirements.txt", "to": "python/requirements.txt" }
+      {
+        "from": "../screen_solver",
+        "to": "python/screen_solver",
+        "filter": [
+          "**/*",
+          "!**/__pycache__/**"
+        ]
+      },
+      {
+        "from": "../requirements.txt",
+        "to": "python/requirements.txt"
+      }
     ],
     "mac": {
       "category": "public.app-category.developer-tools",
-      "target": [{ "target": "dir", "arch": ["arm64"] }, { "target": "dmg", "arch": ["arm64"] }],
+      "target": [
+        {
+          "target": "dir",
+          "arch": [
+            "arm64"
+          ]
+        },
+        {
+          "target": "dmg",
+          "arch": [
+            "arm64"
+          ]
+        }
+      ],
       "hardenedRuntime": false,
       "gatekeeperAssess": false,
       "extendInfo": {
