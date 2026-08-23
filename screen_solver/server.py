@@ -50,7 +50,7 @@ def create_app(cfg: Config) -> FastAPI:
     solver = Solver(cfg, store, bus)
     watch = WatchState(interval=cfg.watch_interval)
     displays: list[dict[str, Any]] = []
-    settings = {"capture_display": cfg.capture_display}
+    settings = {"capture_display": cfg.capture_display, "explore": cfg.explore_first}
     login: dict[str, Any] = {"task": None, "session": None}
     capture_error: dict[str, str | None] = {"message": None}
 
@@ -85,6 +85,35 @@ def create_app(cfg: Config) -> FastAPI:
     app.mount("/static", StaticFiles(directory=STATIC), name="static")
 
     # ---------------------------------------------------------------- #
+
+    async def solve(shot, **kw):
+        """Explore first when asked, then analyze. Every solve goes through here.
+
+        Exploring lives on this side rather than in the shell so that the
+        preference applies to the global hotkeys and watch mode too, not only
+        to the button that happens to know about the checkbox.
+        """
+        if settings["explore"]:
+            bus.publish("explore", {"phase": "start"})
+            try:
+                result = await asyncio.to_thread(page_inspect.quiet_explore)
+                shot.page_context = result["text"]
+                shot.explored = result["panels"]
+                bus.publish(
+                    "explore",
+                    {
+                        "phase": "done",
+                        "panels": result["panels"],
+                        "failed": result["failed"],
+                        "chars": result["chars"],
+                        "shot_id": shot.id,
+                    },
+                )
+            except page_inspect.InspectError as exc:
+                # Never fatal — the screenshot is still there to solve from.
+                bus.publish("explore", {"phase": "failed", "message": str(exc)})
+
+        await solver.analyze(shot, **kw)
 
     def _shot_or_404(shot_id: str | None):
         shot = store.get(shot_id) if shot_id else store.latest()
@@ -122,6 +151,7 @@ def create_app(cfg: Config) -> FastAPI:
         return {
             "displays": displays,
             "capture_display": settings["capture_display"],
+            "explore": settings["explore"],
             "capture_error": capture_error["message"],
             "model": solver.cfg.model,
             "effort": solver.cfg.effort,
@@ -164,7 +194,7 @@ def create_app(cfg: Config) -> FastAPI:
 
         if q.get("analyze") == "1":
             solver.start(
-                solver.analyze(
+                solve(
                     shot,
                     mode=q.get("mode", "auto"),
                     language=q.get("language", ""),
@@ -192,6 +222,19 @@ def create_app(cfg: Config) -> FastAPI:
         shot.add_support(q.get("label") or "extra capture", png, q.get("note") or "")
         bus.publish("shot_updated", shot.meta())
         return shot.meta()
+
+    @app.post("/api/explore")
+    async def explore_now(body: dict = Body(default={})):
+        """Read every worthwhile panel without disturbing the user's tab."""
+        try:
+            result = await asyncio.to_thread(page_inspect.quiet_explore)
+        except page_inspect.InspectError as exc:
+            raise HTTPException(400, str(exc))
+        shot = _shot_or_404(body.get("shot_id"))
+        shot.page_context = result["text"]
+        shot.explored = result["panels"]
+        bus.publish("page_context", {"shot_id": shot.id, "chars": result["chars"]})
+        return {k: v for k, v in result.items() if k != "text"}
 
     @app.post("/api/explore/plan")
     async def explore_plan():
@@ -241,7 +284,13 @@ def create_app(cfg: Config) -> FastAPI:
     async def update_settings(body: dict = Body(...)):
         if "capture_display" in body:
             settings["capture_display"] = int(body["capture_display"])
-        return {"ok": True, "capture_display": settings["capture_display"]}
+        if "explore" in body:
+            settings["explore"] = bool(body["explore"])
+        return {
+            "ok": True,
+            "capture_display": settings["capture_display"],
+            "explore": settings["explore"],
+        }
 
     @app.post("/api/capture")
     async def do_capture(body: dict = Body(default={})):
@@ -258,7 +307,7 @@ def create_app(cfg: Config) -> FastAPI:
 
         if body.get("analyze"):
             solver.start(
-                solver.analyze(
+                solve(
                     shot,
                     mode=body.get("mode", "auto"),
                     language=body.get("language", ""),
@@ -288,7 +337,7 @@ def create_app(cfg: Config) -> FastAPI:
     async def analyze(body: dict = Body(default={})):
         shot = _shot_or_404(body.get("shot_id"))
         solver.start(
-            solver.analyze(
+            solve(
                 shot,
                 mode=body.get("mode", "auto"),
                 language=body.get("language", ""),
@@ -534,7 +583,7 @@ def create_app(cfg: Config) -> FastAPI:
             bus.publish("shot", shot.meta())
             if watch.auto_analyze:
                 solver.start(
-                    solver.analyze(shot, mode=watch.mode, language=watch.language)
+                    solve(shot, mode=watch.mode, language=watch.language)
                 )
 
     @app.post("/api/watch")

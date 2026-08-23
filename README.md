@@ -22,9 +22,10 @@ worked answer on another. Runs on Claude, or entirely offline on a local model.
 - **Reaches past the pixels** — when the schema is behind a "Schema & data"
   tab, it pulls the live DOM: hidden tab panels, collapsed `<details>`, editor
   buffers, tables. It can click a tab and re-capture.
-- **Sees the tabs you are not looking at** — *Explore page* opens the schema,
-  examples and test-case panels, captures each, and sends them all with the
-  solve. Driven by the app, so it works with models that have no tool support.
+- **Reads the tabs you are not looking at** — *Explore page* pulls the schema,
+  examples and test-case panels out of a background copy of the page, so your
+  own tab never changes and nothing is missed below the fold. Driven by the
+  app, so it works with models that have no tool support.
 - **Two views of the answer** — a **Solution** tab with just the finished
   code, and a **Breakdown** tab with the full reasoning: problem restatement,
   inputs/schema, assumptions, approach, numbered steps, clause-by-clause
@@ -295,7 +296,7 @@ These work from any app — the dashboard never needs focus.
 |---|---|
 | `⌥⌘S` | Capture & solve |
 | `⌥⌘C` | Capture |
-| `⌥⌘E` | Explore the page, then capture & solve |
+| `⌥⌘E` | Read the page's other panels (schema, examples, tests) |
 | `⌥⌘A` | Pin the current screen as a supporting capture |
 | `⌥⌘W` | Toggle watch mode |
 | `⌥⌘D` | Show / hide the dashboard |
@@ -341,31 +342,42 @@ Alfred, BetterTouchTool, or Shortcuts.app → *Run Shell Script*:
 
 ---
 
-## Supporting captures
+## Reading the tabs you are not looking at
 
 A screenshot only shows the tab that happened to be open. When the schema is
-behind **Schema & data** and the examples are behind **Examples**, a model
-working from pixels alone will invent the column names — which is exactly the
-failure this is for.
+behind **Schema & data**, a model working from pixels alone invents the column
+names — and the query fails with *no such column*.
 
-**Explore page** (left rail, or `⌥⌘E`) fixes it. It opens each of the other
-panels in turn, captures each one, and puts the page back the way it found it.
-Every capture is sent with the solve, each announced by name, so the model
-reads the schema instead of guessing it.
+**Explore page** (left rail, or `⌥⌘E`) fixes it, and does so **without
+touching your browser**. It opens a background duplicate of the page, clicks
+through the panels *there*, reads each one, and closes it. Your own tab never
+changes — same URL, same tab, same scroll position.
 
-It is driven by the app, not by the model — it works even with a local model
-that cannot call tools at all. Only tab-like controls are opened, and anything
-that looks like an action (*Submit*, *Run*, *Reset*, *Next question*) is never
-clicked.
+That matters for a second reason: it reads the DOM rather than photographing
+it, so it picks up everything in a panel, including the rows below the fold
+that a screenshot would cut off. On the site this was built against it returns
+all eight tables with their full `CREATE TABLE` statements and foreign keys —
+about 21,000 characters that no screenshot could have shown.
 
-Tick **Explore before solving** to make it part of every Capture & solve.
+Tick **Explore before solving** to make it part of every solve. The setting
+lives on the backend, so the global hotkeys and watch mode honour it too.
+
+Panels are chosen by name: ones promising problem context (*Schema & data*,
+*Test cases*, *Constraints*) are always preferred, action buttons (*Submit*,
+*Run*, *Reset*) are never clicked, and panels holding nothing useful — or in
+the case of a site's own *Solution* tab, so much that the model would copy the
+answer instead of working it out — are skipped.
+
+> Chromium only (Chrome, Brave, Edge, Arc). Safari cannot run JavaScript in a
+> tab that is not frontmost, so there is no way to do this invisibly there.
+
+### Supporting screenshots
 
 For anything that is not a browser tab — a PDF, another window, a second
-monitor — press `⌥⌘A` to pin whatever is on screen right now as an extra view
-of the current problem.
-
-The strip under the viewer shows everything that was sent; click any of them
-to see exactly what the model got.
+monitor — press `⌥⌘A` to pin whatever is on screen as an extra view of the
+current problem. The strip under the viewer shows everything that was sent,
+and follows each capture in as it arrives; click any of them to see exactly
+what the model got.
 
 ---
 
@@ -442,6 +454,7 @@ environment variables beat both. Only the packaged app's `SOLVER_PORT` and
 | `SOLVER_WATCH_INTERVAL` | `2.0` | watch-mode poll seconds |
 | `SOLVER_MAX_EDGE` | `1568` | long edge sent to the API |
 | `SOLVER_SUPPORT_MAX_EDGE` | `1024` | long edge for supporting captures |
+| `SOLVER_EXPLORE` | `0` | read the other panels before every solve |
 | `SOLVER_KEEP_SHOTS` | `40` | shots kept on disk |
 
 ## Layout

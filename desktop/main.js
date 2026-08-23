@@ -47,7 +47,7 @@ const HOTKEYS = {
   "Alt+Command+C": "capture",
   "Alt+Command+S": "captureSolve",
   "Alt+Command+W": "toggleWatch",
-  "Alt+Command+E": "exploreSolve",
+  "Alt+Command+E": "exploreNow",
   "Alt+Command+A": "addSupport",
   "Alt+Command+D": "toggleWindow",
 };
@@ -523,12 +523,8 @@ async function captureAndPush(opts = {}) {
   const { png, display, image } = await grabDisplay(opts.display || captureDisplayIndex);
   lastHash = averageHash(image);
 
-  // With an explore pass the solve is held back until the extra panels are
-  // attached — started inline, the model would read the shot before they land.
-  const deferAnalyze = !!(opts.analyze && opts.explore);
-
   const q = new URLSearchParams({ display: String(display) });
-  if (opts.analyze && !deferAnalyze) {
+  if (opts.analyze) {
     q.set("analyze", "1");
     if (opts.mode) q.set("mode", opts.mode);
     if (opts.language) q.set("language", opts.language);
@@ -544,27 +540,6 @@ async function captureAndPush(opts = {}) {
   if (!res.ok) throw new Error(`backend rejected the capture (${res.status})`);
   const shot = await res.json();
 
-  if (opts.explore) {
-    // Never fatal: a page that cannot be explored is still a page that can be
-    // solved from its pixels.
-    try {
-      await explorePage(shot.id);
-    } catch (err) {
-      const message = (err && err.message) || String(err);
-      console.error(`[solver] explore failed: ${message}`);
-      if (win && !win.isDestroyed()) win.webContents.send("explore-error", { message });
-    }
-  }
-
-  if (deferAnalyze) {
-    await post("/api/analyze", {
-      shot_id: shot.id,
-      mode: opts.mode || "auto",
-      language: opts.language || "",
-      hint: opts.hint || "",
-      region: opts.region || null,
-    });
-  }
   return shot;
 }
 
@@ -889,9 +864,8 @@ async function command(name) {
     case "capture":
       await captureAndPush({}).catch((e) => reportCaptureError(e));
       break;
-    case "exploreSolve":
-      await captureAndPush({ explore: true, analyze: true, mode: watchCfg.mode, language: watchCfg.language })
-        .catch((e) => reportCaptureError(e));
+    case "exploreNow":
+      await post("/api/explore", {}).catch((e) => reportCaptureError(e));
       break;
     case "addSupport":
       await addSupportCapture().catch((e) => reportCaptureError(e));
@@ -999,7 +973,9 @@ if (!app.requestSingleInstanceLock()) {
     await pushDisplays();
     return { status: screenPermission(), displays: listDisplays() };
   });
-  ipcMain.handle("explore", async (_e, opts) => ({
+  // Kept for the screenshot-based pass; the default route is the backend's
+  // quiet explore, which never touches the user's tab.
+  ipcMain.handle("explore-visual", async (_e, opts) => ({
     panels: await explorePage((opts && opts.shot_id) || ""),
   }));
   ipcMain.handle("add-support", (_e, opts) => addSupportCapture(opts && opts.label));

@@ -19,6 +19,8 @@ from __future__ import annotations
 
 import json
 import subprocess
+import time
+from contextlib import contextmanager
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -240,6 +242,128 @@ def tab_plan(data: dict, limit: int = 4) -> dict:
         chosen += unnamed[: limit - len(chosen)]
 
     return {"active": active, "tabs": [label for _, _, label in chosen]}
+
+
+class ScratchTab:
+    """A background copy of the front tab, for looking without touching.
+
+    Panels on modern sites are unmounted while inactive — the schema simply is
+    not in the DOM until its tab is clicked — so reading one means activating
+    it. Doing that in the tab the user is watching makes the page flicker
+    through four panels mid-solve. Doing it in a duplicate opened behind their
+    back has the same effect on the DOM and none on what they see.
+
+    Chromium only: Safari's AppleScript cannot run JavaScript in a tab that is
+    not frontmost, so callers fall back to the visible pass there.
+    """
+
+    def __init__(self, app: str, index: int) -> None:
+        self.app = app
+        self.index = index
+
+    def run(self, js: str, timeout: float = 25.0) -> str:
+        payload = _as_string(js)
+        return _osascript(
+            f'tell application "{self.app}" to execute tab {self.index} '
+            f'of front window javascript "{payload}"',
+            timeout=timeout,
+        )
+
+    def ready(self, attempts: int = 20) -> bool:
+        for _ in range(attempts):
+            try:
+                if self.run('document.readyState', timeout=8) == "complete":
+                    return True
+            except InspectError:
+                pass
+            time.sleep(0.4)
+        return False
+
+    def harvest(self) -> dict:
+        raw = self.run((JS_DIR / "harvest.js").read_text())
+        if not raw:
+            raise InspectError("the scratch tab returned nothing")
+        return json.loads(raw)
+
+    def click(self, label: str) -> dict:
+        js = (JS_DIR / "click.js").read_text().replace(
+            "__TARGET__", label.replace("\\", "\\\\").replace('"', '\\"')
+        )
+        try:
+            return json.loads(self.run(js) or "{}")
+        except json.JSONDecodeError:
+            return {"ok": False}
+
+
+@contextmanager
+def scratch_tab(browser: str | None = None):
+    """Open a background duplicate of the front tab; always close it again."""
+    app = pick_browser(browser)
+    if app not in CHROMIUM:
+        raise InspectError(
+            f"{app} cannot run JavaScript in a background tab. "
+            "Use Chrome, Brave, Edge or Arc for quiet exploring."
+        )
+
+    url = _osascript(f'tell application "{app}" to get URL of active tab of front window')
+    home = _osascript(f'tell application "{app}" to get active tab index of front window')
+
+    _osascript(
+        f'tell application "{app}" to make new tab at end of tabs of front window '
+        f'with properties {{URL:"{url}"}}'
+    )
+    index = _osascript(f'tell application "{app}" to get count of tabs of front window')
+    # A new tab steals focus; hand it straight back before anything renders.
+    _osascript(f'tell application "{app}" to set active tab index of front window to {home}')
+
+    try:
+        yield ScratchTab(app, int(index))
+    finally:
+        for script in (
+            f'tell application "{app}" to close tab {index} of front window',
+            f'tell application "{app}" to set active tab index of front window to {home}',
+        ):
+            try:
+                _osascript(script, timeout=8)
+            except (InspectError, subprocess.SubprocessError):
+                pass
+
+
+def quiet_explore(browser: str | None = None, limit: int = 4) -> dict:
+    """Read every worthwhile panel without disturbing the user's tab.
+
+    Returns the combined page text and which panels it came from.
+    """
+    with scratch_tab(browser) as tab:
+        if not tab.ready():
+            raise InspectError("the page did not finish loading in the background tab")
+
+        first = tab.harvest()
+        plan = tab_plan(first, limit=limit)
+        sections = [(plan.get("active") or "current panel", summarize_for_model(first))]
+        opened, failed = [], []
+
+        for label in plan["tabs"]:
+            if not tab.click(label).get("ok"):
+                failed.append(label)
+                continue
+            time.sleep(0.7)
+            try:
+                sections.append((label, summarize_for_model(tab.harvest())))
+                opened.append(label)
+            except (InspectError, json.JSONDecodeError):
+                failed.append(label)
+
+    text = "\n\n".join(
+        f"--- PANEL: {name} ---\n{body}" for name, body in sections if body.strip()
+    )
+    return {
+        "text": text,
+        "panels": opened,
+        "failed": failed,
+        "chars": len(text),
+        "active": plan.get("active", ""),
+    }
 
 
 def summarize_for_model(data: dict, max_chars: int = 24000) -> str:

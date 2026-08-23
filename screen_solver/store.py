@@ -43,6 +43,8 @@ class Shot:
     analysis: str = ""
     page_context: str = ""
     supports: list[Support] = field(default_factory=list)
+    # Panel names read by the last explore pass, for the UI to report.
+    explored: list[str] = field(default_factory=list)
 
     def meta(self) -> dict[str, Any]:
         return {
@@ -53,6 +55,7 @@ class Shot:
             "height": self.height,
             "has_analysis": bool(self.analysis),
             "has_page_context": bool(self.page_context),
+            "explored": list(self.explored),
             "supports": [
                 {"index": i, "label": sup.label, "chars": len(sup.note)}
                 for i, sup in enumerate(self.supports)

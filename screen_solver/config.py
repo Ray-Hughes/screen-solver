@@ -100,6 +100,8 @@ class Config:
     # Supporting captures are context, not the subject, so they are sent
     # smaller — four of them at full size would dwarf the main screenshot.
     support_max_edge: int
+    # Read the page's other panels before every solve.
+    explore_first: bool
     # True when launched by the Electron shell, which adds global hotkeys
     # and a menu-bar item the browser build cannot offer.
     desktop: bool
@@ -134,6 +136,8 @@ class Config:
             keep_shots=_int("SOLVER_KEEP_SHOTS", 40),
             max_edge=_int("SOLVER_MAX_EDGE", 1568),
             support_max_edge=_int("SOLVER_SUPPORT_MAX_EDGE", 1024),
+            explore_first=(os.environ.get("SOLVER_EXPLORE") or "").strip().lower()
+            in ("1", "true", "yes", "on"),
             desktop=os.environ.get("SOLVER_DESKTOP") == "1",
         )
 

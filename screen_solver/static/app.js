@@ -105,8 +105,6 @@
       hint: el.hint.value.trim(),
       region: state.region,
       shot_id: state.shotId,
-      // Only meaningful for a solve — see doCapture, which drops it otherwise.
-      explore: !!(el.exploreFirst.checked && window.solverDesktop),
     };
   }
 
@@ -978,10 +976,6 @@
       analyze: !!andSolve,
       ...opts(),
     };
-    // "Explore before solving" means exactly that. On a plain capture the
-    // pass would open four tabs, take four screenshots and then solve
-    // nothing, which is what it looked like was happening.
-    if (!andSolve) body.explore = false;
     try {
       setStatus("capturing…", "busy");
       // In the desktop app the frame is grabbed by the app bundle itself, so
@@ -1036,18 +1030,14 @@
   el.captureSolve.onclick = () => doCapture(true);
   el.cancel.onclick = () => api("/api/cancel", {});
 
-  /* Explore needs the app bundle: each panel is photographed by the shell,
-     because a screenshot taken by the Python child is refused by macOS. */
-  el.explore.disabled = !window.solverDesktop;
-  el.exploreFirst.disabled = !window.solverDesktop;
-  if (!window.solverDesktop) {
-    el.explore.title = "Only available in the desktop app.";
-    el.exploreFirst.parentElement.title = "Only available in the desktop app.";
-  }
 
-  el.exploreFirst.checked = localStorage.getItem("explore-first") === "1";
-  el.exploreFirst.onchange = () =>
-    localStorage.setItem("explore-first", el.exploreFirst.checked ? "1" : "0");
+  el.exploreFirst.onchange = async () => {
+    try {
+      await api("/api/settings", { explore: el.exploreFirst.checked });
+    } catch (e) {
+      toast(e.message, true);
+    }
+  };
 
   el.explore.onclick = async () => {
     if (!state.shotId) {
@@ -1058,9 +1048,9 @@
     const label = el.explore.textContent;
     el.explore.textContent = "Exploring…";
     try {
-      const r = await window.solverDesktop.explore({ shot_id: state.shotId });
+      const r = await api("/api/explore", { shot_id: state.shotId });
       const n = (r.panels || []).length;
-      toast(n ? `Captured ${n} more panel(s).` : "No other panels to open.");
+      toast(n ? `Read ${n} more panel(s).` : "No other panels to read.");
     } catch (e) {
       toast(e.message, true);
       addEvent(e.message, "err");
@@ -1306,6 +1296,29 @@
       if (d.message) addEvent(d.message);
     });
 
+    es.addEventListener("explore", (e) => {
+      const d = JSON.parse(e.data);
+      if (d.phase === "start") {
+        setStatus("reading the page…", "busy");
+        addEvent("explore: reading the other panels…", "tool");
+      } else if (d.phase === "done") {
+        const n = (d.panels || []).length;
+        addEvent(
+          n
+            ? `explore: read ${d.panels.join(", ")} — ${d.chars.toLocaleString()} chars`
+            : "explore: no other panels to read",
+          "tool"
+        );
+        if ((d.failed || []).length) {
+          addEvent(`explore: could not open ${d.failed.join(", ")}`, "err");
+        }
+        el.ctxState.textContent = `${d.chars.toLocaleString()} chars from ${n + 1} panel(s)`;
+        el.ctxState.className = "ctx-state ok";
+      } else if (d.phase === "failed") {
+        addEvent(`explore failed: ${d.message}`, "err");
+      }
+    });
+
     // A supporting capture landed on the shot we are looking at.
     es.addEventListener("shot_updated", (e) => {
       const meta = JSON.parse(e.data);
@@ -1342,6 +1355,7 @@
       renderDisplays(s.displays, s.capture_display);
       applyCaptureError(s.capture_error);
       el.watchEnabled.checked = s.watch.enabled;
+      el.exploreFirst.checked = !!s.explore;
       el.watchAuto.checked = s.watch.auto_analyze;
       syncWatchControls();
       el.watchInterval.value = s.watch.interval;
