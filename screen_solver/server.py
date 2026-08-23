@@ -25,7 +25,7 @@ from .analyze import Solver
 from .backends import build_backend
 from .config import Config
 from .events import EventBus
-from .store import ShotStore
+from .store import Panel, ShotStore
 
 STATIC = Path(__file__).resolve().parent / "static"
 JS_DIR = Path(__file__).resolve().parent / "js"
@@ -96,9 +96,10 @@ def create_app(cfg: Config) -> FastAPI:
         if settings["explore"]:
             bus.publish("explore", {"phase": "start"})
             try:
-                result = await asyncio.to_thread(page_inspect.quiet_explore)
+                result = await asyncio.to_thread(page_inspect.explore, cfg.explore_mode)
                 shot.page_context = result["text"]
-                shot.explored = result["panels"]
+                shot.panels = [Panel(**x) for x in result["sections"]]
+                bus.publish("shot_updated", shot.meta())
                 bus.publish(
                     "explore",
                     {
@@ -227,14 +228,15 @@ def create_app(cfg: Config) -> FastAPI:
     async def explore_now(body: dict = Body(default={})):
         """Read every worthwhile panel without disturbing the user's tab."""
         try:
-            result = await asyncio.to_thread(page_inspect.quiet_explore)
+            result = await asyncio.to_thread(page_inspect.explore, cfg.explore_mode)
         except page_inspect.InspectError as exc:
             raise HTTPException(400, str(exc))
         shot = _shot_or_404(body.get("shot_id"))
         shot.page_context = result["text"]
-        shot.explored = result["panels"]
+        shot.panels = [Panel(**x) for x in result["sections"]]
+        bus.publish("shot_updated", shot.meta())
         bus.publish("page_context", {"shot_id": shot.id, "chars": result["chars"]})
-        return {k: v for k, v in result.items() if k != "text"}
+        return {k: v for k, v in result.items() if k not in ("text", "sections")}
 
     @app.post("/api/explore/plan")
     async def explore_plan():
@@ -320,6 +322,13 @@ def create_app(cfg: Config) -> FastAPI:
     @app.get("/api/shots/{shot_id}.png")
     async def shot_png(shot_id: str):
         return Response(_shot_or_404(shot_id).png, media_type="image/png")
+
+    @app.get("/api/shots/{shot_id}/panel/{index}.txt")
+    async def panel_text(shot_id: str, index: int):
+        shot = _shot_or_404(shot_id)
+        if not 0 <= index < len(shot.panels):
+            raise HTTPException(404, "no such panel")
+        return Response(shot.panels[index].text, media_type="text/plain")
 
     @app.get("/api/shots/{shot_id}/support/{index}.png")
     async def support_png(shot_id: str, index: int):

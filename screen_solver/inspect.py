@@ -19,6 +19,7 @@ from __future__ import annotations
 
 import json
 import subprocess
+import threading
 import time
 from contextlib import contextmanager
 from dataclasses import dataclass
@@ -165,7 +166,7 @@ def click(target: str, browser: str | None = None) -> dict:
 # Ordered: the earlier the word, the more it is worth opening.
 PANEL_KEYWORDS = (
     "schema", "table", "data", "sample", "example", "constraint", "input",
-    "output", "test", "spec", "detail", "hint", "note", "definition", "column",
+    "output", "test", "spec", "detail", "note", "definition", "column",
 )
 
 # Controls that do something rather than reveal something. Clicking these
@@ -182,7 +183,9 @@ DESTRUCTIVE = (
 IRRELEVANT = (
     "ask", "chat", "discuss", "comment", "submission", "leaderboard",
     "profile", "settings", "editorial", "video", "premium", "upgrade",
-    "solution", "answer",
+    # Opening these costs the user something: sites meter hints, and the
+    # site's own solution would simply be copied instead of worked out.
+    "solution", "answer", "hint", "reveal", "spoiler",
 )
 
 
@@ -253,31 +256,27 @@ class ScratchTab:
     through four panels mid-solve. Doing it in a duplicate opened behind their
     back has the same effect on the DOM and none on what they see.
 
+    Addressed by tab id rather than index: opening or closing any other tab
+    renumbers the window, and closing the wrong one would be the user's tab.
+
     Chromium only: Safari's AppleScript cannot run JavaScript in a tab that is
     not frontmost, so callers fall back to the visible pass there.
     """
 
-    def __init__(self, app: str, index: int) -> None:
+    def __init__(self, app: str, tab_id: str) -> None:
         self.app = app
-        self.index = index
+        self.id = tab_id
+
+    def _where(self) -> str:
+        return f'(first tab of front window whose id is {self.id})'
 
     def run(self, js: str, timeout: float = 25.0) -> str:
         payload = _as_string(js)
         return _osascript(
-            f'tell application "{self.app}" to execute tab {self.index} '
-            f'of front window javascript "{payload}"',
+            f'tell application "{self.app}" to execute {self._where()} '
+            f'javascript "{payload}"',
             timeout=timeout,
         )
-
-    def ready(self, attempts: int = 20) -> bool:
-        for _ in range(attempts):
-            try:
-                if self.run('document.readyState', timeout=8) == "complete":
-                    return True
-            except InspectError:
-                pass
-            time.sleep(0.4)
-        return False
 
     def harvest(self) -> dict:
         raw = self.run((JS_DIR / "harvest.js").read_text())
@@ -294,6 +293,34 @@ class ScratchTab:
         except json.JSONDecodeError:
             return {"ok": False}
 
+    def settled(self, attempts: int = 24, pause: float = 0.4) -> dict | None:
+        """Wait for the page to be *usable*, not merely loaded.
+
+        readyState goes to "complete" as soon as the document is parsed, which
+        for a duplicate of an already-cached page is almost immediately — well
+        before the framework has mounted anything. Harvesting then returns an
+        empty shell and the pass concludes there are no panels. So wait for the
+        thing actually being looked for: a tab bar.
+        """
+        last = None
+        for _ in range(attempts):
+            try:
+                data = self.harvest()
+            except (InspectError, json.JSONDecodeError):
+                time.sleep(pause)
+                continue
+            last = data
+            plan = tab_plan(data)
+            if plan["tabs"] or plan["active"]:
+                return data
+            time.sleep(pause)
+        return last
+
+
+# One pass at a time. Two overlapping passes would each open a scratch tab and
+# fight over which panel the page is showing.
+_explore_lock = threading.Lock()
+
 
 @contextmanager
 def scratch_tab(browser: str | None = None):
@@ -305,28 +332,33 @@ def scratch_tab(browser: str | None = None):
             "Use Chrome, Brave, Edge or Arc for quiet exploring."
         )
 
-    url = _osascript(f'tell application "{app}" to get URL of active tab of front window')
-    home = _osascript(f'tell application "{app}" to get active tab index of front window')
-
-    _osascript(
-        f'tell application "{app}" to make new tab at end of tabs of front window '
-        f'with properties {{URL:"{url}"}}'
+    # Create and hand focus straight back in ONE AppleScript call. Split over
+    # two, the process launch between them is long enough to see the new tab.
+    tab_id = _osascript(
+        f'tell application "{app}"\n'
+        f'  tell front window\n'
+        f'    set home to active tab index\n'
+        f'    set fresh to make new tab at end of tabs '
+        f'with properties {{URL:(URL of active tab)}}\n'
+        f'    set active tab index to home\n'
+        f'    return id of fresh\n'
+        f'  end tell\n'
+        f'end tell'
     )
-    index = _osascript(f'tell application "{app}" to get count of tabs of front window')
-    # A new tab steals focus; hand it straight back before anything renders.
-    _osascript(f'tell application "{app}" to set active tab index of front window to {home}')
+    if not tab_id.strip().isdigit():
+        raise InspectError(f"could not open a background tab in {app}")
 
     try:
-        yield ScratchTab(app, int(index))
+        yield ScratchTab(app, tab_id.strip())
     finally:
-        for script in (
-            f'tell application "{app}" to close tab {index} of front window',
-            f'tell application "{app}" to set active tab index of front window to {home}',
-        ):
-            try:
-                _osascript(script, timeout=8)
-            except (InspectError, subprocess.SubprocessError):
-                pass
+        try:
+            _osascript(
+                f'tell application "{app}" to close '
+                f'(every tab of front window whose id is {tab_id.strip()})',
+                timeout=8,
+            )
+        except (InspectError, subprocess.SubprocessError) as exc:
+            print(f"[solver] scratch tab {tab_id} left open: {exc}")
 
 
 def quiet_explore(browser: str | None = None, limit: int = 4) -> dict:
@@ -334,25 +366,26 @@ def quiet_explore(browser: str | None = None, limit: int = 4) -> dict:
 
     Returns the combined page text and which panels it came from.
     """
-    with scratch_tab(browser) as tab:
-        if not tab.ready():
-            raise InspectError("the page did not finish loading in the background tab")
+    with _explore_lock:
+        with scratch_tab(browser) as tab:
+            first = tab.settled()
+            if first is None:
+                raise InspectError("the background copy of the page never loaded")
 
-        first = tab.harvest()
-        plan = tab_plan(first, limit=limit)
-        sections = [(plan.get("active") or "current panel", summarize_for_model(first))]
-        opened, failed = [], []
+            plan = tab_plan(first, limit=limit)
+            sections = [(plan.get("active") or "current panel", summarize_for_model(first))]
+            opened, failed = [], []
 
-        for label in plan["tabs"]:
-            if not tab.click(label).get("ok"):
-                failed.append(label)
-                continue
-            time.sleep(0.7)
-            try:
-                sections.append((label, summarize_for_model(tab.harvest())))
-                opened.append(label)
-            except (InspectError, json.JSONDecodeError):
-                failed.append(label)
+            for label in plan["tabs"]:
+                if not tab.click(label).get("ok"):
+                    failed.append(label)
+                    continue
+                time.sleep(0.7)
+                try:
+                    sections.append((label, summarize_for_model(tab.harvest())))
+                    opened.append(label)
+                except (InspectError, json.JSONDecodeError):
+                    failed.append(label)
 
     text = "\n\n".join(
         f"--- PANEL: {name} ---\n{body}" for name, body in sections if body.strip()
@@ -363,7 +396,99 @@ def quiet_explore(browser: str | None = None, limit: int = 4) -> dict:
         "failed": failed,
         "chars": len(text),
         "active": plan.get("active", ""),
+        "sections": [{"name": n, "text": b} for n, b in sections if b.strip()],
     }
+
+
+def inplace_explore(browser: str | None = None, limit: int = 4,
+                    settle_ms: int = 550) -> dict:
+    """Read the other panels in the user's own tab, invisibly.
+
+    The panels are cycled underneath a frozen copy of the widget pinned over
+    the top, so nothing on screen appears to change and no new tab is opened —
+    which matters when the screen is being shared.
+
+    Falls back to raising InspectError; callers keep the screenshot path.
+    """
+    app = pick_browser(browser)
+    if app not in CHROMIUM:
+        raise InspectError(
+            f"{app} cannot be explored in place. Use Chrome, Brave, Edge or Arc."
+        )
+
+    with _explore_lock:
+        plan = tab_plan(harvest(app), limit=limit)
+        if not plan["tabs"]:
+            data = harvest(app)
+            return {
+                "text": summarize_for_model(data),
+                "panels": [], "failed": [], "active": plan.get("active", ""),
+                "sections": [{"name": plan.get("active") or "current panel",
+                              "text": summarize_for_model(data)}],
+                "chars": len(summarize_for_model(data)),
+            }
+
+        js = (JS_DIR / "explore.js").read_text()
+        js = js.replace("__TARGETS__", json.dumps(plan["tabs"]))
+        js = js.replace("__RESTORE__", json.dumps(plan.get("active") or ""))
+        js = js.replace("__SETTLE__", str(int(settle_ms)))
+        _run_js(app, js)
+
+        deadline = time.time() + 12 + len(plan["tabs"]) * (settle_ms / 1000 + 1.5)
+        status = "running"
+        while time.time() < deadline:
+            time.sleep(0.4)
+            status = _run_js(app, "(window.__solverExplore||{}).status||''", timeout=8)
+            if status in ("done", "timeout"):
+                break
+
+        raw = _run_js(
+            app,
+            "JSON.stringify(window.__solverExplore||{})",
+            timeout=30,
+        )
+        _run_js(app, "delete window.__solverExplore", timeout=8)
+
+    try:
+        result = json.loads(raw or "{}")
+    except json.JSONDecodeError as exc:
+        raise InspectError("could not read back what the page returned") from exc
+
+    if status != "done":
+        raise InspectError(f"the page did not finish opening its panels ({status or 'no reply'})")
+
+    # The pass returns whole-page text per panel; the current one comes from a
+    # normal harvest so the usual structure (editors, tables) is preserved.
+    base = summarize_for_model(harvest(app))
+    sections = [(result.get("restored") or plan.get("active") or "current panel", base)]
+    for item in result.get("panels", []):
+        sections.append((item.get("name", "?"), item.get("text", "")))
+
+    text = "\n\n".join(
+        f"--- PANEL: {name} ---\n{body}" for name, body in sections if body.strip()
+    )
+    return {
+        "text": text,
+        "panels": [p.get("name") for p in result.get("panels", [])],
+        "failed": result.get("failed", []),
+        "chars": len(text),
+        "active": result.get("restored", ""),
+        "sections": [{"name": n, "text": b} for n, b in sections if b.strip()],
+    }
+
+
+def explore(mode: str = "inplace", browser: str | None = None, limit: int = 4) -> dict:
+    """Read the page's other panels.
+
+    "inplace" cycles the tabs in the user's own tab behind a frozen copy of
+    the widget, so nothing appears to move and no tab is added — the only
+    option that is safe while sharing a screen. "tab" does it in a background
+    duplicate instead, which is more robust on pages whose panels animate but
+    puts a visible tab in the strip.
+    """
+    if mode == "tab":
+        return quiet_explore(browser, limit)
+    return inplace_explore(browser, limit)
 
 
 def summarize_for_model(data: dict, max_chars: int = 24000) -> str:

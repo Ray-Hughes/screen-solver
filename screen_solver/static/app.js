@@ -13,6 +13,7 @@
     mode: $("mode"), language: $("language"), hint: $("hint"),
     inspect: $("btn-inspect"), ctxState: $("ctx-state"), bookmarklet: $("bookmarklet"),
     explore: $("btn-explore"), exploreFirst: $("explore-first"), supports: $("supports"),
+    panelText: $("panel-text"),
     filmstrip: $("filmstrip"),
     viewport: $("viewport"), img: $("shot-img"), viewerEmpty: $("viewer-empty"),
     selection: $("selection"), shotMeta: $("shot-meta"),
@@ -301,6 +302,8 @@
     el.viewerEmpty.hidden = true;
     const when = new Date(meta.ts * 1000).toLocaleTimeString();
     el.shotMeta.textContent = `${meta.width}×${meta.height} · display ${meta.display} · ${when}`;
+    el.panelText.hidden = true;
+    el.img.hidden = false;
     clearRegion();
     markFilmstrip();
     el.ctxState.textContent = meta.has_page_context ? "page context attached" : "no page context";
@@ -311,41 +314,78 @@
   /* The other panels captured for this shot. Clicking one swaps it into the
      viewer, so you can check what the model was actually given. */
   function renderSupports(meta) {
-    const list = (meta && meta.supports) || [];
-    state.supports = list;
-    el.supports.hidden = !list.length;
-    if (!list.length) return;
+    const shots = (meta && meta.supports) || [];
+    // Panels are read as text rather than photographed, so they get a chip
+    // showing what came back instead of a thumbnail.
+    const panels = (meta && meta.panels) || [];
+    state.supports = shots;
+    state.panels = panels;
+
+    el.supports.hidden = !(shots.length || panels.length);
+    if (el.supports.hidden) return;
+
     el.supports.innerHTML =
       '<span class="supports-label">also sent</span>' +
       `<button class="support on" data-index="-1">
          <img src="/api/shots/${meta.id}/thumb.jpg" alt="" /><span>main capture</span>
        </button>` +
-      list
+      shots
         .map(
           (sup) => `<button class="support" data-index="${sup.index}">
              <img src="/api/shots/${meta.id}/support/${sup.index}/thumb.jpg" alt="" />
              <span>${sup.label}</span>
            </button>`
         )
+        .join("") +
+      panels
+        .map(
+          (p) => `<button class="support text-panel" data-panel="${p.index}">
+             <b>${p.name}</b>
+             <span>${p.chars.toLocaleString()} chars read</span>
+           </button>`
+        )
         .join("");
   }
 
+  function markStrip(btn) {
+    el.supports.querySelectorAll(".support").forEach((n) => n.classList.remove("on"));
+    if (btn) btn.classList.add("on");
+  }
+
   /** Put one of this shot's captures in the viewer. -1 is the main one. */
-  function showSupport(index) {
+  function showSupport(index, btn) {
     if (!state.shotId) return;
+    el.panelText.hidden = true;
+    el.img.hidden = false;
     el.img.src =
       index < 0
         ? `/api/shots/${state.shotId}.png`
         : `/api/shots/${state.shotId}/support/${index}.png`;
-    el.supports.querySelectorAll(".support").forEach((n) => {
-      n.classList.toggle("on", Number(n.dataset.index) === index);
-    });
+    markStrip(btn || el.supports.querySelector(`.support[data-index="${index}"]`));
     clearRegion();
+  }
+
+  /** Show what an explore pass actually read, in place of the screenshot. */
+  async function showPanel(index, btn) {
+    if (!state.shotId) return;
+    markStrip(btn);
+    el.panelText.textContent = "loading…";
+    el.img.hidden = true;
+    el.panelText.hidden = false;
+    try {
+      const res = await fetch(`/api/shots/${state.shotId}/panel/${index}.txt`);
+      el.panelText.textContent = await res.text();
+      el.panelText.scrollTop = 0;
+    } catch (e) {
+      el.panelText.textContent = e.message;
+    }
   }
 
   el.supports.addEventListener("click", (e) => {
     const btn = e.target.closest(".support");
-    if (btn) showSupport(Number(btn.dataset.index));
+    if (!btn) return;
+    if (btn.dataset.panel !== undefined) showPanel(Number(btn.dataset.panel), btn);
+    else showSupport(Number(btn.dataset.index), btn);
   });
 
   function markFilmstrip() {
@@ -1325,8 +1365,9 @@
       if (meta.id !== state.shotId) return;
       const grew = (meta.supports || []).length > (state.supports || []).length;
       renderSupports(meta);
-      // Follow the newest one into the viewer, so you watch the panels being
-      // read rather than staring at the first screenshot the whole time.
+      // Follow a new screenshot in, so you watch the panels being captured
+      // rather than staring at the first one. Text panels do not steal the
+      // viewer — they are there to click when you want them.
       if (grew) showSupport(meta.supports[meta.supports.length - 1].index);
     });
 

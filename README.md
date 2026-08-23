@@ -23,9 +23,9 @@ worked answer on another. Runs on Claude, or entirely offline on a local model.
   tab, it pulls the live DOM: hidden tab panels, collapsed `<details>`, editor
   buffers, tables. It can click a tab and re-capture.
 - **Reads the tabs you are not looking at** — *Explore page* pulls the schema,
-  examples and test-case panels out of a background copy of the page, so your
-  own tab never changes and nothing is missed below the fold. Driven by the
-  app, so it works with models that have no tool support.
+  examples and test-case panels from the live page without anything appearing
+  to change: no new tab, no flicker, safe while screen-sharing. Nothing is
+  missed below the fold, and it works with models that have no tool support.
 - **Two views of the answer** — a **Solution** tab with just the finished
   code, and a **Breakdown** tab with the full reasoning: problem restatement,
   inputs/schema, assumptions, approach, numbered steps, clause-by-clause
@@ -348,28 +348,43 @@ A screenshot only shows the tab that happened to be open. When the schema is
 behind **Schema & data**, a model working from pixels alone invents the column
 names — and the query fails with *no such column*.
 
-**Explore page** (left rail, or `⌥⌘E`) fixes it, and does so **without
-touching your browser**. It opens a background duplicate of the page, clicks
-through the panels *there*, reads each one, and closes it. Your own tab never
-changes — same URL, same tab, same scroll position.
+**Explore page** (left rail, or `⌥⌘E`) fixes it, and does so **invisibly**.
 
-That matters for a second reason: it reads the DOM rather than photographing
-it, so it picks up everything in a panel, including the rows below the fold
-that a screenshot would cut off. On the site this was built against it returns
-all eight tables with their full `CREATE TABLE` statements and foreign keys —
-about 21,000 characters that no screenshot could have shown.
+Inactive panels are unmounted by most frameworks, so the schema genuinely is
+not in the page until its tab is activated — there is no way to read it
+without clicking. What Explore does is hide the clicking: it clones the whole
+tab widget, pins the copy exactly over the original, cycles the real tabs
+underneath it, then restores the original tab and removes the copy. What is on
+screen the whole time is a still of the panel that was already showing.
+
+That means **no new tab, no flicker, and nothing to notice if you are sharing
+your screen.**
+
+It also reads the DOM rather than photographing it, so it picks up everything
+in a panel including the rows below the fold that a screenshot would cut off.
+On the site this was built against it returns all eight tables with their full
+`CREATE TABLE` statements and foreign keys.
 
 Tick **Explore before solving** to make it part of every solve. The setting
 lives on the backend, so the global hotkeys and watch mode honour it too.
 
-Panels are chosen by name: ones promising problem context (*Schema & data*,
-*Test cases*, *Constraints*) are always preferred, action buttons (*Submit*,
-*Run*, *Reset*) are never clicked, and panels holding nothing useful — or in
-the case of a site's own *Solution* tab, so much that the model would copy the
-answer instead of working it out — are skipped.
+### What it will and will not open
 
-> Chromium only (Chrome, Brave, Edge, Arc). Safari cannot run JavaScript in a
-> tab that is not frontmost, so there is no way to do this invisibly there.
+Panels are chosen by name. Ones promising problem context — *Schema & data*,
+*Test cases*, *Constraints*, *Examples* — are preferred. Never opened:
+
+- **Actions** — *Submit*, *Run*, *Reset*, *Next question*.
+- **Things that cost you something** — *Hints* are metered by these sites, so
+  opening one spends it. *Solution* would hand the model the finished answer
+  to copy instead of working it out.
+- **Panels with nothing in them** — *Ask*, chat, discussions, submissions.
+
+The original tab is always restored afterwards, and the strip under the viewer
+shows every panel that was read — click one to see exactly what the model got.
+
+> Chromium only (Chrome, Brave, Edge, Arc). Set `SOLVER_EXPLORE_MODE=tab` to
+> use a background duplicate tab instead, which copes better with pages whose
+> panels animate, but puts a visible tab in the strip.
 
 ### Supporting screenshots
 
@@ -455,6 +470,7 @@ environment variables beat both. Only the packaged app's `SOLVER_PORT` and
 | `SOLVER_MAX_EDGE` | `1568` | long edge sent to the API |
 | `SOLVER_SUPPORT_MAX_EDGE` | `1024` | long edge for supporting captures |
 | `SOLVER_EXPLORE` | `0` | read the other panels before every solve |
+| `SOLVER_EXPLORE_MODE` | `inplace` | `inplace` (invisible) or `tab` |
 | `SOLVER_KEEP_SHOTS` | `40` | shots kept on disk |
 
 ## Layout

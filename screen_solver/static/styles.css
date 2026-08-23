@@ -242,6 +242,18 @@ input[type=number] { width: 64px; }
 .filmstrip img:hover { opacity: .9; }
 .filmstrip img.on { opacity: 1; border-color: var(--accent); }
 
+/* What an explore pass read, shown in place of the screenshot. */
+.panel-text {
+  position: absolute; inset: 0; margin: 0;
+  padding: 14px 16px;
+  overflow: auto;
+  background: var(--code-bg);
+  font: 12px/1.6 var(--mono);
+  color: #b9c2d0;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
 /* Supporting captures: the other panels of the same page. */
 .supports {
   flex: 0 0 auto;
@@ -259,6 +271,13 @@ input[type=number] { width: 64px; }
 }
 .supports .support:hover, .supports .support.on { opacity: 1; border-color: var(--accent); }
 .supports .support img { display: block; height: 46px; width: auto; }
+.supports .support.text-panel {
+  display: flex; flex-direction: column; justify-content: center;
+  height: 46px; min-width: 96px; padding: 0 8px;
+}
+.supports .support.text-panel b {
+  font: 10px/1.3 var(--mono); color: var(--accent-2); font-weight: 600;
+}
 .supports .support span {
   display: block; max-width: 130px; padding: 3px 6px;
   font: 10px/1.3 var(--mono); color: var(--muted);
