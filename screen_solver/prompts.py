@@ -163,6 +163,80 @@ right.
 """
 
 
+
+# Dialects differ in exactly the places a solution touches: dates, string
+# concatenation, null handling. A model that has read a million MySQL answers
+# will reach for DATEDIFF in SQLite unless told plainly that it does not exist.
+DIALECT_NOTES: dict[str, str] = {
+    "sqlite": """\
+This is **SQLite**. It is missing much of what other engines have:
+
+- There is no `DATEDIFF`, `DATE_ADD`, `DATEADD`, `EXTRACT` or `NOW()`.
+- Dates are TEXT in 'YYYY-MM-DD' form. Subtracting them with `-` does string
+  arithmetic and silently returns nonsense.
+- Difference in days: `julianday(a) - julianday(b)` — wrap in `CAST(... AS
+  INTEGER)` when a whole number is wanted.
+- Date maths: `date(x, '+1 day')`, `date(x, '-3 months')`.
+- Parts of a date: `strftime('%Y', x)`, `strftime('%m', x)`.
+- Now: `date('now')` / `datetime('now')`.
+- Concatenate with `||`, not `CONCAT()`.
+- `IFNULL` and `COALESCE` both work; there is no `NVL` or `ISNULL`.
+- There is no `RIGHT JOIN` or `FULL OUTER JOIN` on older builds — write it as
+  a `LEFT JOIN` with the tables swapped.
+- Booleans are 0 and 1.""",
+    "postgres": """\
+This is **PostgreSQL**.
+
+- There is no `DATEDIFF`. Subtracting two `date` values gives an integer number
+  of days directly; for timestamps use `AGE(a, b)` or `EXTRACT(EPOCH FROM a-b)`.
+- Date parts: `EXTRACT(YEAR FROM x)` or `DATE_TRUNC('month', x)`.
+- There is no `IFNULL` — use `COALESCE`.
+- Concatenate with `||`. Integer division truncates; cast to `numeric` first.
+- String comparisons are case-sensitive; `ILIKE` is the insensitive match.""",
+    "mysql": """\
+This is **MySQL**.
+
+- `DATEDIFF(a, b)` returns days and is correct here. `TIMESTAMPDIFF(unit,a,b)`
+  for other units.
+- There is no `FULL OUTER JOIN`.
+- Concatenate with `CONCAT()`; `||` is a logical OR unless PIPES_AS_CONCAT.
+- Window functions need MySQL 8.0+.""",
+    "sqlserver": """\
+This is **SQL Server / T-SQL**.
+
+- `DATEDIFF(day, b, a)` — the unit comes first, and the order is (start, end).
+- `LIMIT` does not exist: use `TOP n` or `OFFSET ... FETCH NEXT`.
+- There is no `IFNULL` — use `ISNULL` or `COALESCE`.
+- Concatenate with `+`, and `CONCAT()` for null-safe joining.""",
+    "duckdb": """\
+This is **DuckDB**. It follows PostgreSQL syntax closely: no `DATEDIFF` in the
+MySQL sense (use `DATE_DIFF('day', b, a)`), `||` concatenates, and date
+subtraction yields an interval.""",
+}
+
+DIALECT_ALIASES = (
+    ("sqlite", ("sqlite", "sql.js", "sql-wasm", "runs in your browser")),
+    ("postgres", ("postgres", "postgresql", "psql", "redshift")),
+    ("sqlserver", ("sql server", "t-sql", "tsql", "mssql", "azure sql")),
+    ("mysql", ("mysql", "mariadb")),
+    ("duckdb", ("duckdb",)),
+)
+
+
+def detect_dialect(*sources: str) -> str:
+    """Name the SQL engine from whatever the page and the user told us."""
+    haystack = " ".join(s for s in sources if s).lower()
+    for name, needles in DIALECT_ALIASES:
+        if any(n in haystack for n in needles):
+            return name
+    return ""
+
+
+def dialect_notes(*sources: str) -> str:
+    name = detect_dialect(*sources)
+    return DIALECT_NOTES.get(name, "")
+
+
 def user_block(
     *,
     mode: str = "auto",
@@ -201,6 +275,13 @@ def user_block(
             "first screenshot \u2014 treat them as extra views of it, not as "
             "separate questions. Read the schema, sample data, examples and "
             "constraints from them rather than inferring any of it."
+        )
+
+    notes = dialect_notes(language, page_context)
+    if notes:
+        lines.append(
+            "Dialect rules that apply here \u2014 these are not suggestions, "
+            "a query using the wrong one simply errors:\n\n" + notes
         )
 
     if page_context:

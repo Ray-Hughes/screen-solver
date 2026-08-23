@@ -416,6 +416,23 @@ what the model got.
 
 ---
 
+## Dialects
+
+`DATEDIFF` does not exist in SQLite. Neither does `EXTRACT`, or subtracting two
+dates with `-`. A model that has read a million MySQL answers will reach for
+all three unless told otherwise, and the query simply errors.
+
+So the engine is identified and the rules that matter are stated outright.
+Detection uses the page itself — the dialect label near the editor, and, more
+reliably, which SQL engine the page loads (`sql-wasm.js` means SQLite;
+`duckdb`, `pglite` and friends likewise). Typing into **Language / dialect**
+in the left rail overrides it.
+
+Covered: SQLite, PostgreSQL, MySQL/MariaDB, SQL Server/T-SQL and DuckDB —
+each with the functions that do not exist there and what to use instead.
+
+---
+
 ## How it decides what to solve
 
 The system prompt (`screen_solver/prompts.py`) tells the model to:

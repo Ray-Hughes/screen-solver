@@ -203,5 +203,17 @@
   }
   out.clickables = clickables;
 
+  /* Which SQL engine the page actually loads. The dialect is otherwise only
+     a word in the editor's header, which one layout change would remove. */
+  var engines = [];
+  var srcs = document.querySelectorAll("script[src]");
+  for (var e = 0; e < srcs.length; e++) {
+    var src = (srcs[e].src || "").toLowerCase();
+    if (/sql-wasm|sql\.js|sqlite/.test(src)) engines.push("sqlite");
+    else if (/duckdb/.test(src)) engines.push("duckdb");
+    else if (/pglite|postgres/.test(src)) engines.push("postgres");
+  }
+  out.engines = engines.filter(function (v, i) { return engines.indexOf(v) === i; });
+
   return JSON.stringify(out);
 })();

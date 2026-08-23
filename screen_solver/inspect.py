@@ -569,6 +569,10 @@ def summarize_for_model(data: dict, max_chars: int = 24000) -> str:
     if data.get("title") or data.get("url"):
         parts.append(f"PAGE: {data.get('title', '')}\nURL: {data.get('url', '')}")
 
+    engines = data.get("engines") or []
+    if engines:
+        parts.append("SQL ENGINE LOADED BY THE PAGE: " + ", ".join(engines))
+
     visible = (data.get("visible") or "").strip()
     if visible:
         parts.append("--- VISIBLE TEXT ---\n" + visible)
