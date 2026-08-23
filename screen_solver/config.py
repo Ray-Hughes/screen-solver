@@ -104,6 +104,9 @@ class Config:
     explore_first: bool
     # "inplace" (invisible, safe while screen-sharing) or "tab".
     explore_mode: str
+    # "auto" | "on" | "off". Once a page has been explored the screenshot is
+    # optional, which frees you to run a stronger text-only model.
+    vision: str
     # True when launched by the Electron shell, which adds global hotkeys
     # and a menu-bar item the browser build cannot offer.
     desktop: bool
@@ -141,6 +144,7 @@ class Config:
             explore_first=(os.environ.get("SOLVER_EXPLORE") or "").strip().lower()
             in ("1", "true", "yes", "on"),
             explore_mode=(os.environ.get("SOLVER_EXPLORE_MODE") or "inplace").strip().lower(),
+            vision=(os.environ.get("SOLVER_VISION") or "auto").strip().lower(),
             desktop=os.environ.get("SOLVER_DESKTOP") == "1",
         )
 

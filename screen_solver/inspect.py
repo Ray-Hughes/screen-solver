@@ -18,6 +18,7 @@ viewer hands you a bookmarklet that does exactly that).
 from __future__ import annotations
 
 import json
+import re
 import subprocess
 import threading
 import time
@@ -387,9 +388,7 @@ def quiet_explore(browser: str | None = None, limit: int = 4) -> dict:
                 except (InspectError, json.JSONDecodeError):
                     failed.append(label)
 
-    text = "\n\n".join(
-        f"--- PANEL: {name} ---\n{body}" for name, body in sections if body.strip()
-    )
+    text = _combine(sections)
     return {
         "text": text,
         "panels": opened,
@@ -464,9 +463,7 @@ def inplace_explore(browser: str | None = None, limit: int = 4,
     for item in result.get("panels", []):
         sections.append((item.get("name", "?"), item.get("text", "")))
 
-    text = "\n\n".join(
-        f"--- PANEL: {name} ---\n{body}" for name, body in sections if body.strip()
-    )
+    text = _combine(sections)
     return {
         "text": text,
         "panels": [p.get("name") for p in result.get("panels", [])],
@@ -475,6 +472,81 @@ def inplace_explore(browser: str | None = None, limit: int = 4,
         "active": result.get("restored", ""),
         "sections": [{"name": n, "text": b} for n, b in sections if b.strip()],
     }
+
+
+CREATE_TABLE_RE = re.compile(r"CREATE\s+TABLE\s+(?:IF\s+NOT\s+EXISTS\s+)?[\"`\[]?(\w+)[\"`\]]?\s*\((.*?)\n\s*\)\s*;", re.S | re.I)
+ROWS_HEADER_RE = re.compile(r"^(\w+)\s*\(\d[\d,]*\s+rows?[^)]*\)\s*$", re.M)
+CONSTRAINT_WORDS = ("primary", "foreign", "unique", "check", "constraint", "index")
+
+
+def _columns_from_ddl(body: str) -> list[str]:
+    cols = []
+    for line in body.splitlines():
+        line = line.strip().rstrip(",")
+        if not line or line.startswith("--"):
+            continue
+        first = line.split()[0].strip('"`[]').lower()
+        if first in CONSTRAINT_WORDS:
+            continue
+        name = line.split()[0].strip('"`[],')
+        if name.isidentifier():
+            cols.append(name)
+    return cols
+
+
+def _combine(sections) -> str:
+    """Join the panels, with the schema restated up front where it will be read."""
+    body = "\n\n".join(
+        f"--- PANEL: {name} ---\n{text}" for name, text in sections if text.strip()
+    )
+    schema = schema_block(body)
+    return f"{schema}\n\n{body}" if schema else body
+
+
+def schema_block(text: str) -> str:
+    """Pull an unambiguous table -> columns map out of harvested page text.
+
+    The schema is in there, but buried in thousands of characters of page
+    furniture, and a small model reading prose will happily decide a column
+    lives on whichever table the surrounding query mentioned. Restating it as
+    a short, explicit list — at the top, before anything else — removes the
+    room to infer.
+    """
+    tables: dict[str, list[str]] = {}
+
+    for name, body in CREATE_TABLE_RE.findall(text):
+        cols = _columns_from_ddl(body)
+        if cols:
+            tables[name] = cols
+
+    # Fall back to the rendered preview tables: a "name (12 rows)" heading
+    # followed by a line of column names.
+    if not tables:
+        lines = text.splitlines()
+        for i, line in enumerate(lines):
+            m = ROWS_HEADER_RE.match(line.strip())
+            if not m:
+                continue
+            for candidate in lines[i + 1 : i + 4]:
+                parts = candidate.split()
+                if len(parts) >= 2 and all(p.isidentifier() for p in parts):
+                    tables[m.group(1)] = parts
+                    break
+
+    if not tables:
+        return ""
+
+    rows = "\n".join(f"  {n}({', '.join(c)})" for n, c in sorted(tables.items()))
+    return (
+        "=== SCHEMA — AUTHORITATIVE, READ FROM THE PAGE ===\n"
+        "These are the only tables that exist, and the only columns on each.\n\n"
+        f"{rows}\n\n"
+        "Use every column on the table it is listed under, and no other. If a\n"
+        "column you need is listed under a different table, JOIN to that table\n"
+        "to reach it. Never assume a column exists on a table where it is not\n"
+        "listed above, however natural it seems — that is the single most\n"
+        "common way these answers fail.\n"
+        "=== END SCHEMA ===")
 
 
 def explore(mode: str = "inplace", browser: str | None = None, limit: int = 4) -> dict:

@@ -57,6 +57,28 @@ only on demand.
 - `recapture_screen` — take a fresh screenshot. Use it for non-browser apps, \
 after you have asked the user to scroll, or to confirm the screen changed.
 
+# 2a. The schema is read, never reasoned about
+
+If the context contains a block marked SCHEMA — AUTHORITATIVE, that list is \
+the truth about what exists. Before you write a single column name, find its \
+table in that list.
+
+- A column belongs to exactly the table it is listed under. `account_name` \
+being listed under `accounts` means it is NOT on `policies`, no matter how \
+naturally "the account's name" reads next to a policy row.
+- If the columns you need are spread across tables, that is a JOIN, and \
+saying so is the answer — not a reason to assume one table has them all.
+- The identifier suffix `_id` is a foreign key, not a licence to assume the \
+rest of that table's columns come with it. `policies.account_id` gives you a \
+join key to `accounts`; it does not put `account_name` on `policies`.
+- Never write "inferred from" about a column. If you cannot find it in the \
+schema, it does not exist, and the right move is to look again or to join.
+
+Whatever is typed in the code editor is the user's draft. It is often the \
+thing that is failing, so treat it as a statement of intent and never as \
+evidence about the schema — a column appearing in their query is not \
+evidence that the column exists.
+
 Rules for tool use:
 - Never fabricate a table schema, column list, sample row, function signature \
 or constraint that you could have looked up. Reach for `read_page` instead.
@@ -183,9 +205,11 @@ def user_block(
 
     if page_context:
         lines.append(
-            "I already pulled the live DOM of the page for you. Use it as the "
-            "authoritative source of text, schema and editor contents; the "
-            "screenshot shows you the layout.\n\n"
+            "I already pulled the live DOM of the page for you, including the "
+            "panels that are not on screen. Use it as the authoritative "
+            "source of text, schema and editor contents; the screenshot only "
+            "shows you the layout. If it contains a SCHEMA block, check every "
+            "column name against it before you use it.\n\n"
             "<page_context>\n" + page_context + "\n</page_context>"
         )
 

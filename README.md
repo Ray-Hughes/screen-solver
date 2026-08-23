@@ -197,14 +197,34 @@ That is all. The dashboard drops the sign-in chip and labels itself
 
 ### Picking a model
 
-It **must** be a vision model — every solve sends a screenshot.
+There are two families to choose between, and the right answer depends on
+whether you are solving problems in a browser.
+
+**Text-only models, with Explore.** Once *Explore page* has read the page,
+the problem is text — schema, examples, test cases and all — and the
+screenshot adds nothing. That frees you to run a model built for code rather
+than for looking at pictures, which at the same size is markedly better at
+SQL. The app notices a model cannot see images and stops sending them.
+
+| Model | Size | Good at |
+|---|---|---|
+| `qwen2.5-coder:14b` | ~9 GB | **the recommended default** for browser problems |
+| `qwen2.5-coder:32b` | ~20 GB | the same, appreciably stronger, slower |
+
+**Vision models**, if you capture things that are not web pages — PDFs, other
+apps, a second monitor — where there is no DOM to read:
 
 | Model | Size | Good at |
 |---|---|---|
 | `minicpm-v` | ~5 GB | pure OCR; text-heavy screenshots |
-| `qwen2.5vl:7b` | ~6 GB | the sensible default — reads code, tables and SQL |
+| `qwen2.5vl:7b` | ~6 GB | reads a screen, but struggles with multi-step SQL |
 | `gemma3:12b` | ~8 GB | better prose when you want the *explanation* |
-| `qwen2.5vl:32b` | ~21 GB | closest to hosted quality; wants ~32 GB of RAM |
+| `qwen2.5vl:32b` | ~21 GB | closest to hosted quality; wants most of 32 GB |
+
+A 7B vision model will read a schema correctly and still put the column on the
+wrong table. If answers are wrong in ways that look like guessing rather than
+misreading, that is the model, not the context — go bigger, or go to a coder
+model and let Explore do the reading.
 
 ### What you give up
 
@@ -471,6 +491,7 @@ environment variables beat both. Only the packaged app's `SOLVER_PORT` and
 | `SOLVER_SUPPORT_MAX_EDGE` | `1024` | long edge for supporting captures |
 | `SOLVER_EXPLORE` | `0` | read the other panels before every solve |
 | `SOLVER_EXPLORE_MODE` | `inplace` | `inplace` (invisible) or `tab` |
+| `SOLVER_VISION` | `auto` | `off` never sends the screenshot |
 | `SOLVER_KEEP_SHOTS` | `40` | shots kept on disk |
 
 ## Layout

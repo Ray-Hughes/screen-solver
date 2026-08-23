@@ -641,6 +641,9 @@
       if (p && p.tools === false) {
         addEvent("This model has no tool support — page inspection is off.");
       }
+      if (p && p.vision === false) {
+        addEvent("This model cannot see images — solves rely on Explore reading the page.");
+      }
     }
   }
 
@@ -1340,7 +1343,12 @@
       const d = JSON.parse(e.data);
       if (d.phase === "start") {
         setStatus("reading the page…", "busy");
-        addEvent("explore: reading the other panels…", "tool");
+        addEvent(
+          d.required
+            ? "explore: this model cannot see images, so the page is being read instead"
+            : "explore: reading the other panels…",
+          "tool"
+        );
       } else if (d.phase === "done") {
         const n = (d.panels || []).length;
         addEvent(

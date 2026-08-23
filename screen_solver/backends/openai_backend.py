@@ -41,6 +41,12 @@ NO_TOOL_MARKERS = (
 # Ollama and some llama.cpp builds 400 on stream_options instead of ignoring it.
 NO_USAGE_MARKERS = ("stream_options", "include_usage")
 
+# A text-only model asked to look at a picture.
+NO_VISION_MARKERS = (
+    "does not support images", "image input", "not support image",
+    "vision", "multimodal", "unsupported content type",
+)
+
 
 def _data_url(block: dict[str, Any]) -> dict[str, Any]:
     src = block["source"]
@@ -129,6 +135,10 @@ class OpenAIBackend(Backend):
         # Usage only arrives on the stream if the server implements this, and
         # not all of them do — see _run's fallback.
         self._ask_for_usage = True
+        # Once a page has been explored the text carries the problem, so a
+        # text-only model is a perfectly good choice — and usually a stronger
+        # one at the same size. Drop the images rather than failing.
+        self.sends_images = cfg.vision != "off"
 
     @property
     def label(self) -> str:
@@ -145,6 +155,7 @@ class OpenAIBackend(Backend):
             "base_url": self.cfg.base_url,
             "local": self.cfg.local,
             "tools": self.supports_tools,
+            "vision": self.sends_images,
             "needs_signin": False,
         }
 
@@ -210,7 +221,8 @@ class OpenAIBackend(Backend):
                 if kind == "text":
                     parts.append({"type": "text", "text": _get(b, "text", "")})
                 elif kind == "image":
-                    parts.append(_data_url(b))
+                    if self.sends_images:
+                        parts.append(_data_url(b))
                 elif kind == "tool_result":
                     chunks, images = [], []
                     for piece in _get(b, "content") or []:
@@ -230,7 +242,8 @@ class OpenAIBackend(Backend):
                     hoisted.extend(images)
 
             for image in hoisted:
-                parts.append(_data_url(image))
+                if self.sends_images:
+                    parts.append(_data_url(image))
             if parts:
                 out.append({"role": "user", "content": parts})
 
@@ -290,6 +303,12 @@ class OpenAIBackend(Backend):
                 ):
                     self._ask_for_usage = False
                     payload.pop("stream_options", None)
+                    continue
+                if self.sends_images and any(m in lowered for m in NO_VISION_MARKERS):
+                    # A text-only model. Resend without the screenshot and
+                    # stay that way for the session.
+                    self.sends_images = False
+                    payload["messages"] = self.to_openai(system, messages)
                     continue
                 raise
         return await self._run(payload, on_text, on_thinking)

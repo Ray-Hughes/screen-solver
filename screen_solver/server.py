@@ -93,8 +93,14 @@ def create_app(cfg: Config) -> FastAPI:
         preference applies to the global hotkeys and watch mode too, not only
         to the button that happens to know about the checkbox.
         """
-        if settings["explore"]:
-            bus.publish("explore", {"phase": "start"})
+        # A text-only model gets nothing at all from a screenshot, so reading
+        # the page is not optional for it — do it whether or not it was asked
+        # for, rather than solving from an empty prompt.
+        blind = getattr(solver.backend, "sends_images", True) is False
+        needs_context = blind and not shot.page_context
+
+        if settings["explore"] or needs_context:
+            bus.publish("explore", {"phase": "start", "required": needs_context})
             try:
                 result = await asyncio.to_thread(page_inspect.explore, cfg.explore_mode)
                 shot.page_context = result["text"]

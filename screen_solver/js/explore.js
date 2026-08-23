@@ -77,6 +77,7 @@
   var first = TARGETS.length ? findControl(TARGETS[0]) : null;
   var widget = first ? widgetFor(first) : null;
   var still = widget ? freeze(widget) : null;
+  OUT.widget = widget ? (widget.tagName + "." + String(widget.className).slice(0, 40)) : "";
 
   /* Which tab to put back. Supplied by the caller, which works it out by
      comparing how the tabs *look* — sites commonly mark the open one with
@@ -84,8 +85,14 @@
   var openTab = RESTORE || "";
   OUT.restored = openTab;
 
+  /* Only the tab card, not the whole page.
+     document.body.innerText drags in the code editor, and the editor holds
+     whatever query is currently failing — so every panel came back carrying
+     the broken query, and the model treated it as an established fact about
+     the schema. Read the widget the tabs belong to instead. */
   function readPanel() {
-    return clean(document.body.innerText).slice(0, 60000);
+    var node = widget && clean(widget.innerText).length > 40 ? widget : document.body;
+    return clean(node.innerText).slice(0, 60000);
   }
 
   function step(i) {
