@@ -113,7 +113,9 @@
 
   /* Which of the two panes is showing. Remembered, because whether you want
      the working or just the answer is a habit, not a per-solve decision. */
-  state.view = localStorage.getItem("answer-view") === "solution" ? "solution" : "breakdown";
+  /* The model emits ## Solution second now, so the code lands long before the
+     teaching sections. Default to the pane that fills first. */
+  state.view = localStorage.getItem("answer-view") === "breakdown" ? "breakdown" : "solution";
 
   function showView(name) {
     state.view = name;

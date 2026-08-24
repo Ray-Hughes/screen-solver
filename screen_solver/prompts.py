@@ -94,35 +94,47 @@ Write GitHub-flavoured Markdown using exactly these `##` headings, in this \
 order. Skip a heading entirely if it genuinely does not apply — never emit an \
 empty or filler section.
 
+**The answer comes first.** Someone is waiting to type this out, and every \
+paragraph before the code is a paragraph they sit through. Settle the problem \
+in your head, emit `## Problem` briefly, then the working code, then explain \
+it at length. Do not warm up, do not narrate your reasoning on the way to the \
+code, and never write the code twice — the later sections refer back to the \
+one block in `## Solution`.
+
 ## Problem
-Restate the task in your own words in 2-4 sentences, then a tight bullet list \
-of the exact requirements: output columns/return shape, ordering, filters, \
-tie-breaks, dialect/language. Quote the phrasing that pins each one down.
-
-## Inputs & Schema
-Tables and columns (with types and keys) for SQL; parameter and return types \
-for code. Include the sample data if you have it. Mark anything you inferred \
-rather than read with *(inferred)*.
-
-## Assumptions & gaps
-Only what is actually uncertain, and what you assumed. If you filled a gap \
-with a tool, say where the information came from. If something is still \
-unknown and would change the answer, say what and how.
-
-## Approach
-The idea in plain language before any code: the shape of the solution and \
-*why* it is the right one here. Name the technique. If an obvious simpler \
-approach fails, say in one line why.
-
-## Step-by-step breakdown
-Numbered steps, each one a sentence or two of plain English describing what \
-that step computes and why it is needed. Someone should be able to write the \
-solution from these steps without seeing your code. This section is the point \
-of the whole answer — be generous here.
+Two or three sentences on what is being asked, then a tight bullet list of the \
+exact requirements: output columns/return shape, ordering, filters, \
+tie-breaks, dialect/language. Quote the phrasing that pins each one down. \
+Keep this short — it is the only thing standing between the reader and the \
+answer, and the detail belongs in the sections after the code.
 
 ## Solution
 One fenced code block, complete and runnable, in the right language/dialect, \
-with brief inline comments. No placeholders, no "// rest of logic here".
+with brief inline comments. No placeholders, no "// rest of logic here". \
+Every column and function in it must already be checked against the schema \
+and the dialect rules above — this block is what gets copied, so it has to be \
+right the first time rather than corrected later in the answer.
+
+## Approach
+The idea in plain language: the shape of the solution and *why* it is the \
+right one here. Name the technique. If an obvious simpler approach fails, say \
+in one line why.
+
+## Step-by-step breakdown
+Numbered steps, each one a sentence or two of plain English describing what \
+that step computes and why it is needed. Someone should be able to \
+reconstruct the solution from these steps alone. This is the section that \
+teaches — be generous here.
+
+## Inputs & Schema
+The tables and columns the solution actually touches (with types and keys) \
+for SQL; parameter and return types for code. Include the sample data if you \
+have it. Mark anything you inferred rather than read with *(inferred)*.
+
+## Assumptions & gaps
+Only what is actually uncertain, and what you assumed. If something is still \
+unknown and would change the answer, say what and how. If an assumption here \
+would change the code above, say so explicitly.
 
 ## Walkthrough
 Go through the solution in order, quoting each meaningful line or clause as \
@@ -253,8 +265,9 @@ def user_block(
             "coding": "This is a general coding problem. Answer in code.",
             "explain": (
                 "Do not solve it yet — only extract and explain the problem, "
-                "its inputs and its output contract. Stop after "
-                "'## Assumptions & gaps'."
+                "its inputs and its output contract. Emit '## Problem', then "
+                "'## Inputs & Schema', then '## Assumptions & gaps', and stop. "
+                "Skip '## Solution' entirely."
             ),
         }
         if mode in labels:

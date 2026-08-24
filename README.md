@@ -26,6 +26,10 @@ worked answer on another. Runs on Claude, or entirely offline on a local model.
   examples and test-case panels from the live page without anything appearing
   to change: no new tab, no flicker, safe while screen-sharing. Nothing is
   missed below the fold, and it works with models that have no tool support.
+- **The answer first** — the model is told to emit the code immediately after
+  a short problem restatement, so it streams into the **Solution** tab line by
+  line while the teaching sections are still being written. You can start
+  typing it out at about the halfway point of a solve instead of the end.
 - **Two views of the answer** — a **Solution** tab with just the finished
   code, and a **Breakdown** tab with the full reasoning: problem restatement,
   inputs/schema, assumptions, approach, numbered steps, clause-by-clause
@@ -413,6 +417,20 @@ monitor — press `⌥⌘A` to pin whatever is on screen as an extra view of the
 current problem. The strip under the viewer shows everything that was sent,
 and follows each capture in as it arrives; click any of them to see exactly
 what the model got.
+
+---
+
+## The order things arrive in
+
+The answer is written answer-first: `## Problem`, then `## Solution`, then the
+explanation. That is deliberate — the code is what you are waiting for, and
+under the obvious ordering (problem, schema, assumptions, approach, steps,
+*then* code) it arrived at the very end of a long stream.
+
+The **Solution** tab renders the code as it streams, a line at a time, so on a
+local model it is readable roughly halfway through a solve rather than at the
+end. The **Breakdown** tab still has everything, in teaching order, and gets a
+dot on the Solution tab when there is something to look at.
 
 ---
 
