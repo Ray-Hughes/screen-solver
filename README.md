@@ -331,6 +331,21 @@ keep working.
 
 ### In the dashboard
 
+The top bar carries the whole sequence, so you can run it a step at a time or
+all at once:
+
+| Button | Key | Does |
+|---|---|---|
+| **Capture** | `Space` | take the screenshot |
+| **Explore** | `E` | read the page's other panels into the shot |
+| **Solve** | `S` | solve what has been captured |
+| **All** | `A` | capture, explore, then solve |
+
+**All** is the one-press version. Exploring is tied to a shot, so a panel read
+once is not read again — pressing **All** with *Explore before solving* ticked
+does not walk the tabs twice.
+
+
 | Action | How |
 |---|---|
 | Capture | `Space`, the **Capture** button, or `bin/solve-capture` |

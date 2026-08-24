@@ -13,6 +13,7 @@
     mode: $("mode"), language: $("language"), hint: $("hint"),
     inspect: $("btn-inspect"), ctxState: $("ctx-state"), bookmarklet: $("bookmarklet"),
     explore: $("btn-explore"), exploreFirst: $("explore-first"), supports: $("supports"),
+    exploreTop: $("btn-explore-top"), runAll: $("btn-run-all"),
     panelText: $("panel-text"),
     filmstrip: $("filmstrip"),
     viewport: $("viewport"), img: $("shot-img"), viewerEmpty: $("viewer-empty"),
@@ -85,6 +86,8 @@
     el.cancel.hidden = !b;
     el.solve.disabled = b;
     el.captureSolve.disabled = b;
+    el.runAll.disabled = b;
+    el.exploreTop.disabled = b;
   }
 
   async function api(path, body, method) {
@@ -1086,26 +1089,49 @@
     }
   };
 
-  el.explore.onclick = async () => {
+  /* One explore path, shared by the rail button, the top bar and Run all,
+     so all three report and fail the same way. */
+  async function runExplore({ quiet = false } = {}) {
     if (!state.shotId) {
-      toast("Capture something first.", true);
-      return;
+      if (!quiet) toast("Capture something first.", true);
+      return null;
     }
-    el.explore.disabled = true;
-    const label = el.explore.textContent;
+    const buttons = [el.explore, el.exploreTop];
+    const labels = buttons.map((b) => b.innerHTML);
+    buttons.forEach((b) => { b.disabled = true; });
     el.explore.textContent = "Exploring…";
     try {
       const r = await api("/api/explore", { shot_id: state.shotId });
       const n = (r.panels || []).length;
-      toast(n ? `Read ${n} more panel(s).` : "No other panels to read.");
+      if (!quiet) toast(n ? `Read ${n} more panel(s).` : "No other panels to read.");
+      return r;
     } catch (e) {
       toast(e.message, true);
       addEvent(e.message, "err");
+      return null;
     } finally {
-      el.explore.textContent = label;
-      el.explore.disabled = false;
+      buttons.forEach((b, i) => { b.innerHTML = labels[i]; b.disabled = false; });
     }
-  };
+  }
+
+  el.explore.onclick = () => runExplore();
+  el.exploreTop.onclick = () => runExplore();
+
+  /* Capture, read the page, then solve — the whole sequence in one press. */
+  async function doAll() {
+    el.runAll.disabled = true;
+    try {
+      const meta = await doCapture(false);
+      if (!meta) return;              // capture failed and has already said so
+      state.shotId = meta.id;
+      await runExplore({ quiet: true });
+      await doSolve();
+    } finally {
+      el.runAll.disabled = false;
+    }
+  }
+
+  el.runAll.onclick = doAll;
 
   el.inspect.onclick = async () => {
     el.inspect.disabled = true;
@@ -1213,6 +1239,8 @@
     if (typing) return;
     if (e.code === "Space") { e.preventDefault(); doCapture(false); }
     else if (e.key === "s" || e.key === "S") { e.preventDefault(); doSolve(); }
+    else if (e.key === "e" || e.key === "E") { e.preventDefault(); runExplore(); }
+    else if (e.key === "a" || e.key === "A") { e.preventDefault(); doAll(); }
     else if (e.key === "r" || e.key === "R") { el.region.click(); }
     else if (e.key === "Escape") { clearRegion(); }
   });

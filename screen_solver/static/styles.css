@@ -125,6 +125,9 @@ kbd {
 .btn.accent:hover { background: rgba(110,231,183,.2); }
 .btn.ghost { background: transparent; }
 .btn.wide { width: 100%; justify-content: center; }
+/* Stacked full-width buttons ran flush into each other. */
+.btn.wide + .btn.wide { margin-top: 8px; }
+.block .btn.wide + .hint { margin-top: 10px; }
 .btn.tiny { padding: 5px 9px; font-size: 12px; }
 .btn.on { background: rgba(125,211,252,.16); border-color: rgba(125,211,252,.35); color: var(--accent); }
 .btn[disabled] { opacity: .45; pointer-events: none; }

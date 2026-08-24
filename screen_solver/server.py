@@ -98,8 +98,12 @@ def create_app(cfg: Config) -> FastAPI:
         # for, rather than solving from an empty prompt.
         blind = getattr(solver.backend, "sends_images", True) is False
         needs_context = blind and not shot.page_context
+        # Explore is tied to a shot, so once this one has been read there is
+        # nothing to gain from doing it again — pressing All with "Explore
+        # before solving" on would otherwise walk the tabs twice.
+        already_read = bool(shot.panels)
 
-        if settings["explore"] or needs_context:
+        if (settings["explore"] or needs_context) and not already_read:
             bus.publish("explore", {"phase": "start", "required": needs_context})
             try:
                 result = await asyncio.to_thread(page_inspect.explore, cfg.explore_mode)
