@@ -21,6 +21,7 @@
     solution: $("solution"), breakdown: $("breakdown"),
     sectionNav: $("section-nav"), usage: $("usage"),
     answerTabs: $("answer-tabs"), copySolution: $("btn-copy-solution"),
+    verifyChip: $("verify-chip"),
     thinking: $("thinking"), thinkingText: $("thinking-text"), thinkingBtn: $("btn-thinking"),
     transcript: $("transcript"), composer: $("composer"), chatInput: $("chat-input"),
     clearChat: $("btn-clear-chat"),
@@ -1054,6 +1055,7 @@
     el.usage.textContent = "";
     el.thinkingText.textContent = "";
     el.breakdown.innerHTML = '<div class="empty small"><p>thinking…</p></div>';
+    el.verifyChip.hidden = true;
     setBusy(true);
   }
 
@@ -1339,6 +1341,43 @@
       const d = JSON.parse(e.data);
       authPending(d);
       if (d.message) addEvent(d.message);
+    });
+
+    /* The answer is executed before it is trusted; these report that. */
+    es.addEventListener("verify", (e) => {
+      const d = JSON.parse(e.data);
+      if (!d.ran) {
+        el.verifyChip.hidden = true;
+        return;
+      }
+      el.verifyChip.hidden = false;
+      el.verifyChip.className = "chip verify " + (d.ok ? "ok" : "bad");
+      el.verifyChip.textContent = d.ok ? "runs" : "does not run";
+      el.verifyChip.title = d.ok
+        ? `Executed against the page's own schema — no errors.`
+        : d.error;
+      if (d.ok) addEvent(`verified: the ${d.language || "code"} runs`, "tool");
+    });
+
+    es.addEventListener("repair", (e) => {
+      const d = JSON.parse(e.data);
+      el.verifyChip.hidden = false;
+      el.verifyChip.className = "chip verify busy";
+      el.verifyChip.textContent = `fixing (${d.attempt})`;
+      el.verifyChip.title = d.error;
+      addEvent(`solution failed: ${d.error.split("\n")[0]} — fixing`, "err");
+    });
+
+    es.addEventListener("solution_fixed", (e) => {
+      const d = JSON.parse(e.data);
+      // Swap the corrected code into the answer already on screen, rather
+      // than appending a second solution for the reader to choose between.
+      state.buffer = state.buffer.replace(
+        /(##\s*Solution\s*\n+```[\w+-]*\n)([\s\S]*?)(```)/,
+        (_m, open, _body, close) => open + d.code.replace(/\n+$/, "") + "\n" + close
+      );
+      renderSolution();
+      addEvent("solution replaced with a version that runs", "tool");
     });
 
     es.addEventListener("explore", (e) => {

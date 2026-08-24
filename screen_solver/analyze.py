@@ -14,13 +14,17 @@ import asyncio
 import base64
 from typing import Any, Callable
 
-from . import capture, errors, inspect as page_inspect, prompts
+from . import capture, errors, inspect as page_inspect, prompts, verify as verifier
 from .backends import build_backend
 from .config import Config
 from .events import EventBus
 from .store import Shot, ShotStore
 
 MAX_TOOL_ROUNDS = 6
+# Two goes at fixing a solution that will not run. Past that the model is
+# usually cycling between the same two wrong answers, and saying so is more
+# use than a third attempt.
+MAX_REPAIRS = 2
 
 TOOLS: list[dict[str, Any]] = [
     {
@@ -84,6 +88,19 @@ TOOLS: list[dict[str, Any]] = [
         },
     },
 ]
+
+
+def _replace_solution(markdown: str, code: str) -> str:
+    """Swap the body of the ## Solution fence, leaving the rest of the answer."""
+    section = verifier.SOLUTION_RE.search(markdown)
+    if not section:
+        return markdown
+    body = section.group(1)
+    fence = verifier.CODE_FENCE_RE.search(body)
+    if not fence:
+        return markdown
+    replaced = body[: fence.start(2)] + code.rstrip() + "\n" + body[fence.end(2):]
+    return markdown[: section.start(1)] + replaced + markdown[section.end(1):]
 
 
 def image_block(png: bytes, max_edge: int) -> dict[str, Any]:
@@ -200,8 +217,9 @@ class Solver:
         def on_thinking(text: str) -> None:
             self.bus.publish("thinking_delta", {"text": text})
 
-        def finish(turn) -> None:
+        async def finish(turn) -> None:
             shot.analysis = "".join(collected)
+            await self._repair(shot, system)
             self.bus.publish(
                 "analysis_done",
                 {
@@ -237,7 +255,7 @@ class Solver:
                     return
 
                 if turn.stop_reason != "tool_use":
-                    finish(turn)
+                    await finish(turn)
                     return
 
                 results = []
@@ -249,7 +267,7 @@ class Solver:
                 if not results:
                     # A tool_use stop with no usable call — some local models
                     # do this. Take what was said rather than looping on it.
-                    finish(turn)
+                    await finish(turn)
                     return
 
                 shot.messages.append({"role": "user", "content": results})
@@ -276,6 +294,66 @@ class Solver:
             self.bus.publish("analysis_error", errors.classify(exc).to_dict())
 
     # ------------------------------------------------------------------ #
+
+    async def _repair(self, shot: Shot, system: str) -> None:
+        """Run the answer, and if it fails, make the model fix it.
+
+        The point is that a solution which does not execute never reaches the
+        screen looking finished. Verification needs no model — the schema came
+        off the page — so a wrong answer is caught for free; only the fix costs
+        a round trip.
+        """
+        for attempt in range(1, MAX_REPAIRS + 1):
+            result = await asyncio.to_thread(
+                verifier.verify, shot.analysis, shot.page_context
+            )
+            self.bus.publish(
+                "verify",
+                {**result.to_dict(), "shot_id": shot.id, "attempt": attempt},
+            )
+            if result.ok or not result.ran:
+                return
+
+            language, code = verifier.solution_code(shot.analysis)
+            self.bus.publish(
+                "repair", {"shot_id": shot.id, "attempt": attempt, "error": result.error}
+            )
+
+            fixed: list[str] = []
+            shot.messages.append(
+                {
+                    "role": "user",
+                    "content": prompts.REPAIR.format(
+                        error=result.error, language=language or "", code=code
+                    ),
+                }
+            )
+            turn = await self.backend.stream(
+                system=system,
+                messages=shot.messages,
+                tools=None,
+                on_text=fixed.append,
+                on_thinking=lambda t: self.bus.publish("thinking_delta", {"text": t}),
+            )
+            shot.messages.append({"role": "assistant", "content": turn.content})
+
+            _, new_code = verifier.solution_code("## Solution\n" + "".join(fixed))
+            if not new_code.strip():
+                new_code = verifier.CODE_FENCE_RE.search("".join(fixed))
+                new_code = new_code.group(2) if new_code else ""
+            if not new_code.strip():
+                return  # nothing usable came back; leave the original in place
+
+            shot.analysis = _replace_solution(shot.analysis, new_code)
+            self.bus.publish(
+                "solution_fixed",
+                {"shot_id": shot.id, "language": language, "code": new_code},
+            )
+
+        final = await asyncio.to_thread(verifier.verify, shot.analysis, shot.page_context)
+        self.bus.publish(
+            "verify", {**final.to_dict(), "shot_id": shot.id, "attempt": MAX_REPAIRS + 1}
+        )
 
     async def _run_tool(self, shot: Shot, block: Any) -> dict[str, Any]:
         name = block.name

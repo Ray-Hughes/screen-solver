@@ -315,3 +315,26 @@ FOLLOWUP_SYSTEM_SUFFIX = (
     "directly and at whatever length it needs — do not re-emit the full "
     "section template unless asked to redo the whole solution."
 )
+
+
+REPAIR = """\
+The solution you just gave does not run. It was executed against the real \
+schema and this is what came back:
+
+<error>
+{error}
+</error>
+
+The failing code:
+
+```{language}
+{code}
+```
+
+Fix it. Work out what the error is actually telling you — a missing column \
+usually means it lives on another table and needs a join; a missing function \
+usually means it belongs to a different SQL dialect. Re-read the schema and \
+dialect rules you were given.
+
+Reply with the corrected code in ONE fenced ```{language} block and nothing \
+else: no heading, no explanation, no apology. It must run as-is."""

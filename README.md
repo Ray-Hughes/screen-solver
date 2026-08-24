@@ -420,6 +420,38 @@ what the model got.
 
 ---
 
+## The answer is run before you see it
+
+A solution that does not execute is worse than none: it looks finished, gets
+typed out, and fails on submit. So the code is executed before the answer is
+considered done.
+
+**SQL** runs against a throwaway SQLite database rebuilt from the very
+`CREATE TABLE` statements Explore harvested off the page. **Python** is
+compiled and run in a subprocess with a timeout. Neither needs the model, so
+catching a broken answer is free — only fixing one costs a round trip.
+
+If it fails, the error goes back to the model with the failing code and it is
+asked for a corrected block, up to twice. The fix is swapped into the answer
+in place, so you are never left choosing between two solutions. A chip beside
+the tabs says **runs** or **does not run**, and hovering it shows the error.
+
+What that catches, in practice:
+
+```
+no such column: account_name      the column is on another table — needs a join
+no such function: DATEDIFF        wrong SQL dialect
+no such table: policyz            typo
+near "FROM": syntax error         malformed query
+TypeError: can only concatenate…  Python that parses but does not run
+                                  unbounded loops, via the timeout
+```
+
+Languages there is no runner for — JavaScript, Java, Go — are left alone and
+the chip stays hidden rather than claiming a check that never happened.
+
+---
+
 ## The order things arrive in
 
 The answer is written answer-first: `## Problem`, then `## Solution`, then the
