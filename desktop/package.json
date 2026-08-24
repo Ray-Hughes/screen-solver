@@ -1,7 +1,7 @@
 {
   "name": "screen-solver-desktop",
   "productName": "Screen Solver",
-  "version": "0.1.5",
+  "version": "0.1.6",
   "description": "Silent screen capture with a Claude-powered problem solver",
   "main": "main.js",
   "private": true,
